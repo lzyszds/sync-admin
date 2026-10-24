@@ -38,3 +38,6 @@ Thumbs.db
 preview.html
 datahub.html
 gemini-code.html
+
+# Telegram 通知凭据（勿提交）
+scripts/.env
