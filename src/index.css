@@ -1,0 +1,407 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "Plus Jakarta Sans", "Noto Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.3);
+  --radius-2xl: calc(var(--radius) * 1.6);
+  --radius-3xl: calc(var(--radius) * 2.0);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* 云控后台 · 极简中性四栏工作台配色 */
+  --color-craft-sidebar: var(--craft-sidebar);
+  --color-craft-list: var(--craft-list);
+  --color-craft-ink: var(--craft-ink);
+  --color-craft-line: var(--craft-line);
+  --color-craft-muted: var(--craft-muted);
+
+  /* 拟态磨砂环境配色 */
+  --color-warmbg: #f3f3f1;
+  --color-activeblack: #1c1c1c;
+  --color-textmain: #191918;
+  --color-textmuted: #787774;
+  --color-borderlight: #e6e6e3;
+  --color-brand: #c98a4b;
+  --color-brand-soft: #fff7ee;
+}
+
+:root {
+  --radius: 0.75rem;
+  /* 极简中性浅色：纯白主工作区 + 暖灰侧栏 + 炭黑主操作色 */
+  --background: #ffffff;
+  --foreground: #191918;
+  --card: #ffffff;
+  --card-foreground: #191918;
+  --popover: #ffffff;
+  --popover-foreground: #191918;
+  --primary: #1c1c1c;
+  --primary-foreground: #ffffff;
+  --secondary: #f3f3f1;
+  --secondary-foreground: #191918;
+  --muted: #f9f9f8;
+  --muted-foreground: #787774;
+  --accent: #f3f3f1;
+  --accent-foreground: #191918;
+  --destructive: #be123c;
+  --destructive-foreground: #ffffff;
+  --border: #e6e6e3;
+  --input: #e6e6e3;
+  --ring: #1c1c1c;
+  --chart-1: #b45309;
+  --chart-2: #6d28d9;
+  --chart-3: #047857;
+  --chart-4: #1d4ed8;
+  --chart-5: #be123c;
+  --sidebar: #f3f3f1;
+  --sidebar-foreground: #191918;
+  --sidebar-primary: #1c1c1c;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e8e8e4;
+  --sidebar-accent-foreground: #191918;
+  --sidebar-border: #e6e6e3;
+  --sidebar-ring: #1c1c1c;
+
+  --craft-sidebar: #f3f3f1;
+  --craft-list: #f9f9f8;
+  --craft-ink: #1c1c1c;
+  --craft-line: #e6e6e3;
+  --craft-muted: #787774;
+}
+
+.dark {
+  --background: #17171a;
+  --foreground: #f3f3f1;
+  --card: #1d1d21;
+  --card-foreground: #f3f3f1;
+  --popover: #1d1d21;
+  --popover-foreground: #f3f3f1;
+  --primary: #f3f3f1;
+  --primary-foreground: #17171a;
+  --secondary: #26262b;
+  --secondary-foreground: #f3f3f1;
+  --muted: #202024;
+  --muted-foreground: #a1a1a0;
+  --accent: #26262b;
+  --accent-foreground: #f3f3f1;
+  --destructive: #e11d48;
+  --destructive-foreground: #ffffff;
+  --border: #2b2b31;
+  --input: #34343b;
+  --ring: #f3f3f1;
+  --chart-1: #d97706;
+  --chart-2: #8b5cf6;
+  --chart-3: #10b981;
+  --chart-4: #3b82f6;
+  --chart-5: #f43f5e;
+  --sidebar: #1d1d21;
+  --sidebar-foreground: #f3f3f1;
+  --sidebar-primary: #f3f3f1;
+  --sidebar-primary-foreground: #17171a;
+  --sidebar-accent: #26262b;
+  --sidebar-accent-foreground: #f3f3f1;
+  --sidebar-border: #2b2b31;
+  --sidebar-ring: #f3f3f1;
+
+  --craft-sidebar: #1d1d21;
+  --craft-list: #202024;
+  --craft-ink: #f3f3f1;
+  --craft-line: #2b2b31;
+  --craft-muted: #a1a1a0;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply text-foreground antialiased;
+    background-color: #f3f3f1;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    overflow-x: hidden;
+  }
+}
+
+/* 极简滚动条 */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #e0e0dc;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #c7c7c2;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #3a3a40;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #4c4c54;
+}
+
+/* Notion 极简线框表格 */
+.notion-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.notion-table th, .notion-table td {
+  border: 1px solid #eaeae7;
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 13px;
+}
+.notion-table th {
+  color: #787774;
+  font-weight: 500;
+  background-color: #fbfbfa;
+}
+.notion-table td {
+  color: #2c2c2b;
+}
+.dark .notion-table th, .dark .notion-table td {
+  border-color: #2b2b31;
+}
+.dark .notion-table th {
+  background-color: #1a1a1e;
+  color: #a1a1a0;
+}
+.dark .notion-table td {
+  color: #e6e6e3;
+}
+
+/* 高密度数据网格 */
+.dense-table { width: 100%; border-collapse: collapse; }
+.dense-table.fixed { table-layout: fixed; }
+.dense-table th, .dense-table td {
+  padding: 9px 12px;
+  text-align: left;
+  font-size: 12px;
+  border-bottom: 1px solid #eaeae7;
+}
+.dense-table th {
+  color: #787774;
+  font-weight: 500;
+  background: #fbfbfa;
+  white-space: nowrap;
+}
+.dense-table tbody tr:hover { background: #fafaf8; }
+.dense-table td.nowrap { white-space: nowrap; }
+.dense-table td.truncate-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dark .dense-table th, .dark .dense-table td { border-color: #2b2b31; }
+.dark .dense-table th { background: #1a1a1e; color: #a1a1a0; }
+.dark .dense-table tbody tr:hover { background: #22222a; }
+
+/* 淡入上移动画 */
+@keyframes console-fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.console-fade-up { animation: console-fade-up 0.22s ease-out both; }
+
+/* 优雅代码高亮色彩 */
+.json-key { color: #0284c7; font-weight: 500; }
+.json-string { color: #16a34a; }
+.json-number { color: #d97706; }
+.json-boolean { color: #7c3aed; }
+.json-null { color: #94a3b8; }
+
+/* ============================================================
+   拟态磨砂环境 · 设计系统（参考 21st.dev 玻璃拟态 / 流光交互）
+   ============================================================ */
+
+/* 流体渐变光晕漂移 */
+@keyframes ambient-blob {
+  0%, 100% { transform: translate(0px, 0px) scale(1); }
+  33% { transform: translate(40px, -50px) scale(1.08); }
+  66% { transform: translate(-30px, 30px) scale(0.94); }
+}
+.animate-blob-slow {
+  animation: ambient-blob 14s infinite ease-in-out;
+}
+.animate-blob-reverse {
+  animation: ambient-blob 18s infinite ease-in-out reverse;
+}
+
+/* 胶片颗粒噪点（提升磨砂高级感） */
+.noise-overlay {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.028'/%3E%3C/svg%3E");
+}
+
+/* 磨砂玻璃表面 */
+.glass-surface {
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow:
+    0 24px 60px -12px rgba(25, 25, 24, 0.12),
+    0 4px 16px -2px rgba(25, 25, 24, 0.04),
+    inset 0 1px 1px rgba(255, 255, 255, 0.9);
+}
+
+/* 轻量磨砂（侧栏 / 列表面板） */
+.glass-surface-soft {
+  background: rgba(255, 255, 255, 0.44);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+}
+
+/* 鼠标跟随的表面聚光灯 */
+.glass-spotlight-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: var(--spotlight-opacity, 0);
+  transition: opacity 0.3s ease;
+  background: radial-gradient(
+    480px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(255, 255, 255, 0.72),
+    transparent 45%
+  );
+}
+
+/* 鼠标跟随的边缘流光束 */
+.glass-beam-layer {
+  position: absolute;
+  inset: -1px;
+  z-index: 2;
+  pointer-events: none;
+  border-radius: inherit;
+  padding: 1.2px;
+  background: radial-gradient(
+    260px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(28, 28, 28, 0.32),
+    rgba(201, 138, 75, 0.28) 40%,
+    transparent 75%
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  opacity: var(--spotlight-opacity, 0);
+  transition: opacity 0.3s ease;
+}
+
+/* 3D 倾斜（登录卡片） */
+.glass-spotlight-tilt {
+  transform-style: preserve-3d;
+  transition:
+    transform 0.16s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.3s ease;
+}
+
+/* 拟态磨砂输入框 */
+.glass-input {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(230, 230, 227, 0.9);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
+  transition: all 0.22s ease;
+}
+.glass-input:focus {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: #1c1c1c;
+  box-shadow: 0 0 0 3px rgba(28, 28, 28, 0.06);
+  outline: none;
+}
+
+/* 流光按钮 */
+.shimmer-btn {
+  position: relative;
+  overflow: hidden;
+  background: #1c1c1c;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.shimmer-btn:hover {
+  box-shadow: 0 10px 25px -5px rgba(28, 28, 28, 0.28);
+  transform: translateY(-1px);
+}
+.shimmer-btn:active {
+  transform: translateY(0) scale(0.99);
+}
+.shimmer-btn::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.18),
+    transparent
+  );
+  transform: skewX(-20deg);
+  transition: 0.65s;
+}
+.shimmer-btn:hover::after {
+  left: 140%;
+}
+
+/* 底部悬浮胶囊分段切换器 */
+.tab-pill {
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 二级 / 三级栏目：强制单行不换行 */
+.nowrap-item {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-blob-slow,
+  .animate-blob-reverse {
+    animation: none;
+  }
+  .console-fade-up {
+    animation: none;
+  }
+}
+

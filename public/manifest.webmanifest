@@ -1,0 +1,26 @@
+{
+  "name": "云控后台 · 多端应用数据管理中枢",
+  "short_name": "云控后台",
+  "description": "多端应用数据库与业务逻辑管理中枢：快照管理、业务数据表、字段校验与增量同步。",
+  "lang": "zh-CN",
+  "start_url": "/console/#/overview",
+  "scope": "/console/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F3F3F1",
+  "theme_color": "#C98A4B",
+  "icons": [
+    {
+      "src": "/console/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/console/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
