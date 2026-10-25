@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Link, useParams } from "react-router-dom"
+import { Link, useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 import { ChevronLeft, ChevronRight, Pencil, Plus, Sparkles, Trash2, UploadCloud, FileJson } from "lucide-react"
 import { ConsoleIconButton, ConsoleViewTabs, ConsoleWorkspace } from "@/components/layout/console-workspace"
 import { ConsoleList, ConsoleListCard, ConsoleNav, ConsoleNavItem } from "@/components/layout/console-columns"
+import { RefreshButton } from "@/components/layout/load-progress"
 import { RecipeFormDialog } from "@/components/recipes/recipe-form-dialog"
 import { AiImportDialog } from "@/components/recipes/ai-import-dialog"
 import { BulkImportDialog } from "@/components/recipes/bulk-import-dialog"
@@ -18,6 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { api } from "@/lib/api"
 import { useConsole } from "@/lib/console-store"
 import {
@@ -31,6 +33,8 @@ import {
   toConsolePayload,
 } from "@/lib/console-data"
 import { formatDate } from "@/lib/format"
+import { useCachedData } from "@/lib/use-cached-data"
+import { dedupe } from "@/lib/data-cache"
 import type { Difficulty, IngredientGroup, Recipe } from "@/lib/types"
 
 const VIEW_OPTIONS = [
@@ -42,11 +46,15 @@ const VIEW_OPTIONS = [
 
 export default function Recipes() {
   const params = useParams()
+  const navigate = useNavigate()
   const app = params.app || "recipe"
   const { snapshots, online } = useConsole()
 
-  const [recipes, setRecipes] = useState<Recipe[]>([])
-  const [loading, setLoading] = useState(true)
+  const [totalState, setTotal] = useState(0)
+  const [facets, setFacets] = useState<{ categories: string[]; difficulties: string[] }>({
+    categories: [],
+    difficulties: [],
+  })
   const [search, setSearch] = useState("")
   const [category, setCategory] = useState("全部")
   const [difficulty, setDifficulty] = useState<"全部" | "简单" | "中等" | "进阶">("全部")
@@ -65,64 +73,92 @@ export default function Recipes() {
   const tokenHash =
     params.tokenHash || snapshots.find((s) => s.app === app)?.tokenHash || ""
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      if (tokenHash && online) {
-        const res = await api.recipes(app, tokenHash, {
-          search: search || undefined,
-          category: category === "全部" ? undefined : category,
-          difficulty: difficulty === "全部" ? undefined : difficulty,
-          limit: 100,
-        })
-        setRecipes(res.recipes)
-        return
-      }
-      throw new Error("演示模式")
-    } catch {
-      // 演示模式：本地预置食谱
-      let list = demoRecipes()
-      if (category !== "全部") list = list.filter((r) => r.category === category)
-      if (difficulty !== "全部") {
-        list = list.filter((r) => DIFFICULTY_LABEL[r.difficulty] === difficulty)
-      }
-      if (search.trim()) {
-        const key = search.trim().toLowerCase()
-        list = list.filter((r) =>
-          `${r.name} ${r.description} ${r.category} ${JSON.stringify(r.ingredients)}`.toLowerCase().includes(key),
-        )
-      }
-      setRecipes(list)
-    } finally {
-      setLoading(false)
-    }
-  }, [app, tokenHash, search, category, difficulty, online])
+  // 该应用下的全部租户快照（用于切换查看不同用户的食谱）
+  const tenants = useMemo(() => snapshots.filter((s) => s.app === app), [snapshots, app])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  const load = useCallback(
+    async (onChunk?: (chunk: Recipe[]) => void) => {
+      if (tokenHash && online) {
+        // 全量食谱（服务端 limit 有上限，自动翻页）；每页到达即回调，边收边渲染
+        // 与全局 store 共享同一份请求，避免重复拉取
+        const res = await dedupe(`recipes:${app}:${tokenHash}:live`, () =>
+          api.allRecipes(app, tokenHash, {}, (partial) => {
+            onChunk?.(partial.recipes)
+            setFacets(partial.facets)
+            setTotal(partial.total)
+          })
+        )
+        return res.recipes
+      }
+      // 演示模式：本地预置食谱（不写入缓存，避免污染真实数据缓存）
+      const list = demoRecipes()
+      onChunk?.(list)
+      return list
+    },
+    [app, tokenHash, online]
+  )
+
+  // 缓存 + 边收边渲染：切换路由命中缓存不重新请求
+  // 依赖 online：后端连接状态变化时（离线演示 → 在线真实数据）需要重新拉取
+  const cacheKey = `recipes:${app}:${tokenHash}:${online ? "live" : "demo"}`
+  const {
+    data: recipes,
+    loading,
+    loaded,
+    total: loadedTotal,
+    refresh,
+    setData: setCachedRecipes,
+  } = useCachedData<Recipe[]>(cacheKey, async (onChunk) => load(onChunk), {
+    enabled: !!tokenHash,
+    deps: [online],
+    // 演示兜底数据不写入缓存，避免污染真实数据缓存
+    cacheable: online,
+  })
+
+  // 首次进入时 total 可能还是 0，用本地累加值兜底
+  const total = useMemo(() => Math.max(totalState, loadedTotal, recipes?.length || 0), [totalState, loadedTotal, recipes])
+
+  // 搜索 / 分类 / 难度均在已拉取的全量数据上本地过滤
+  const allRecipes = useMemo(() => recipes ?? [], [recipes])
+  const filtered = useMemo(() => {
+    let list = allRecipes
+    if (category !== "全部") list = list.filter((r) => r.category === category)
+    if (difficulty !== "全部") list = list.filter((r) => DIFFICULTY_LABEL[r.difficulty] === difficulty)
+    if (search.trim()) {
+      const key = search.trim().toLowerCase()
+      list = list.filter((r) =>
+        `${r.name} ${r.description} ${r.category} ${JSON.stringify(r.ingredients)}`.toLowerCase().includes(key),
+      )
+    }
+    return list
+  }, [allRecipes, category, difficulty, search])
 
   // 默认选中第一条
   useEffect(() => {
-    if (!recipes.length) return
-    if (!recipes.some((r) => r.id === selectedId)) setSelectedId(recipes[0].id)
-  }, [recipes, selectedId])
+    if (!filtered.length) return
+    if (!filtered.some((r) => r.id === selectedId)) setSelectedId(filtered[0].id)
+  }, [filtered, selectedId])
 
+  // 分类列表：优先用服务端返回的全量分面，避免只统计到当前页
   const categories = useMemo(() => {
     const set = new Set<string>()
-    demoRecipes().forEach((r) => set.add(r.category))
-    recipes.forEach((r) => r.category && set.add(r.category))
+    if (online && facets.categories.length) facets.categories.forEach((c) => c && set.add(c))
+    allRecipes.forEach((r) => r.category && set.add(r.category))
     return ["全部", ...Array.from(set)]
-  }, [recipes])
+  }, [allRecipes, facets, online])
 
-  const selected = recipes.find((r) => r.id === selectedId) || recipes[0] || null
-  const sorted = useMemo(() => (sortAsc ? [...recipes].reverse() : recipes), [recipes, sortAsc])
+  const selected = filtered.find((r) => r.id === selectedId) || filtered[0] || null
+  const sorted = useMemo(() => (sortAsc ? [...filtered].reverse() : filtered), [filtered, sortAsc])
+  // 整表视图（表格 / 源码）始终展示全量数据，不受列表筛选影响
+  const sortedAll = useMemo(() => (sortAsc ? [...allRecipes].reverse() : allRecipes), [allRecipes, sortAsc])
 
   async function confirmDelete() {
     if (!deleting) return
     try {
       if (online && tokenHash) await api.deleteRecipe(app, tokenHash, deleting.id)
-      setRecipes((prev) => prev.filter((r) => r.id !== deleting.id))
+      // 增删改后同步更新缓存，无需重新请求
+      setCachedRecipes((prev) => (prev ?? []).filter((r) => r.id !== deleting.id))
+      setTotal((v) => Math.max(0, v - 1))
       toast.success("食谱已删除并同步至各端")
       setDeleting(null)
     } catch (err) {
@@ -131,8 +167,8 @@ export default function Recipes() {
   }
 
   function toggleStep(recipe: Recipe, index: number) {
-    setRecipes((prev) =>
-      prev.map((r) =>
+    setCachedRecipes((prev) =>
+      (prev ?? []).map((r) =>
         r.id === recipe.id
           ? { ...r, steps: r.steps.map((s, i) => (i === index ? { ...s, done: !s.done } : s)) }
           : r,
@@ -148,7 +184,22 @@ export default function Recipes() {
       breadcrumb={`食谱表 / ${category === "全部" ? "全部食谱" : category}${view === "detail" && selected ? ` / ${selected.name}` : ""}`}
       headerRight={
         <>
+          {tenants.length > 1 && (
+            <Select value={tokenHash} onValueChange={(v) => navigate(`/recipes/${app}/${v}`)}>
+              <SelectTrigger className="h-7 w-[190px] text-xs rounded-lg bg-craft-list border-craft-line">
+                <SelectValue placeholder="选择租户" />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl">
+                {tenants.map((s) => (
+                  <SelectItem key={s.tokenHash} value={s.tokenHash} className="text-xs">
+                    {s.tokenPrefix} · {formatDate(s.updatedAt).slice(0, 10)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <ConsoleViewTabs value={view} options={VIEW_OPTIONS} onChange={setView} />
+          <RefreshButton onClick={() => void refresh()} loading={loading} />
           <ConsoleIconButton title="录入新食谱" onClick={() => { setEditing(null); setFormOpen(true) }}>
             <Plus className="w-3.5 h-3.5" />
           </ConsoleIconButton>
@@ -161,7 +212,7 @@ export default function Recipes() {
               key={cat}
               active={category === cat}
               label={cat === "全部" ? "全部食谱" : cat}
-              count={cat === "全部" ? recipes.length : recipes.filter((r) => r.category === cat).length}
+              count={cat === "全部" ? allRecipes.length : allRecipes.filter((r) => r.category === cat).length}
               onClick={() => setCategory(cat)}
             />
           ))}
@@ -173,9 +224,26 @@ export default function Recipes() {
           onSearch={setSearch}
           placeholder="搜索菜名、配料、描述..."
           onNew={() => { setEditing(null); setFormOpen(true) }}
-          countText={`共 ${recipes.length} 条食谱`}
+          countText={`共 ${filtered.length} 条食谱${total > filtered.length ? ` / 全量 ${total} 条` : ""}`}
           sortIndicator={sortAsc ? "↑↓" : "↓↑"}
           onSort={() => setSortAsc((v) => !v)}
+          items={sorted}
+          loading={loading}
+          loadingText="正在加载食谱..."
+          loaded={loaded}
+          total={total}
+          emptyText="暂无匹配的食谱"
+          estimateHeight={72}
+          renderItem={(r: Recipe) => (
+            <ConsoleListCard
+              active={r.id === selected?.id}
+              onClick={() => { setSelectedId(r.id); setRecipeTab("visual"); setView("detail") }}
+              title={r.name}
+              description={r.description}
+              trailing={`${r.cookTime}分钟`}
+              dotColor={difficultyDot(r.difficulty)}
+            />
+          )}
           extra={
             <div className="flex items-center gap-1">
               <span className="text-[11px] text-craft-muted mr-1">难度</span>
@@ -194,25 +262,7 @@ export default function Recipes() {
               ))}
             </div>
           }
-        >
-          {loading ? (
-            <div className="py-12 text-center text-xs text-craft-muted">加载中...</div>
-          ) : sorted.length === 0 ? (
-            <div className="py-12 text-center text-xs text-craft-muted">暂无匹配的食谱</div>
-          ) : (
-            sorted.map((r) => (
-              <ConsoleListCard
-                key={r.id}
-                active={r.id === selected?.id}
-                onClick={() => { setSelectedId(r.id); setRecipeTab("visual"); setView("detail") }}
-                title={r.name}
-                description={r.description}
-                trailing={`${r.cookTime}分钟`}
-                dotColor={difficultyDot(r.difficulty)}
-              />
-            ))
-          )}
-        </ConsoleList>
+        />
       }
       footerLeft={selected ? `最后修改：${formatDate(selected.updatedAt)} · 同步状态：已同步` : "暂无记录"}
       footerRight={selected ? `共 ${ingCount} 项食材 · ${selected.steps.length} 道步骤 · 耗时 ${selected.cookTime} 分钟` : ""}
@@ -412,7 +462,7 @@ export default function Recipes() {
             </button>
           </div>
           <div className="border border-craft-line rounded-2xl overflow-x-auto">
-            <table className="dense-table fixed">
+            <table className="dense-table dense-table-fixed">
               <colgroup>
                 <col style={{ width: "92px" }} />
                 <col style={{ width: "112px" }} />
@@ -438,7 +488,7 @@ export default function Recipes() {
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((r) => (
+                {sortedAll.map((r) => (
                   <tr key={r.id} className="cursor-pointer" onClick={() => { setSelectedId(r.id); setView("detail") }}>
                     <td className="nowrap font-mono text-[11px] text-craft-muted">{r.id}</td>
                     <td className="nowrap font-semibold text-craft-ink">{r.name}</td>
@@ -488,8 +538,8 @@ export default function Recipes() {
                 const payload = {
                   数据表: "食谱表",
                   结构版本: "2.4.0",
-                  记录总数: recipes.length,
-                  记录: recipes.map(toConsolePayload),
+                  记录总数: allRecipes.length,
+                  记录: allRecipes.map(toConsolePayload),
                 }
                 navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
                 toast.success("已复制全部食谱结构化源码")
@@ -504,8 +554,8 @@ export default function Recipes() {
               {
                 数据表: "食谱表",
                 结构版本: "2.4.0",
-                记录总数: recipes.length,
-                记录: recipes.map(toConsolePayload),
+                记录总数: allRecipes.length,
+                记录: allRecipes.map(toConsolePayload),
               },
               null,
               2,
@@ -540,13 +590,14 @@ export default function Recipes() {
         onOpenChange={setFormOpen}
         recipe={editing}
         onSaved={() => {
-          void load()
+          // 增删改后失效缓存并重新拉取
+          void refresh()
           toast.success("食谱已保存并同步至各端")
         }}
       />
-      <BulkImportDialog app={app} tokenHash={tokenHash} open={bulkOpen} onOpenChange={setBulkOpen} onSaved={() => void load()} />
-      <AiImportDialog app={app} tokenHash={tokenHash} open={aiOpen} onOpenChange={setAiOpen} onSaved={() => void load()} />
-      <RawJsonDialog app={app} tokenHash={tokenHash} open={rawOpen} onOpenChange={setRawOpen} onSaved={() => void load()} />
+      <BulkImportDialog app={app} tokenHash={tokenHash} open={bulkOpen} onOpenChange={setBulkOpen} onSaved={() => void refresh()} />
+      <AiImportDialog app={app} tokenHash={tokenHash} open={aiOpen} onOpenChange={setAiOpen} onSaved={() => void refresh()} />
+      <RawJsonDialog app={app} tokenHash={tokenHash} open={rawOpen} onOpenChange={setRawOpen} onSaved={() => void refresh()} />
 
       <AlertDialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(null)}>
         <AlertDialogContent className="rounded-2xl">
@@ -611,7 +662,7 @@ export function StructurePanel({ title }: { title: string }) {
         <span className="text-xs font-bold text-craft-ink">表结构 · {title}</span>
         <span className="text-[11px] text-craft-muted">{cols.length} 个字段</span>
       </div>
-      <table className="dense-table fixed">
+      <table className="dense-table dense-table-fixed">
         <colgroup>
           <col style={{ width: "64px" }} />
           <col style={{ width: "80px" }} />

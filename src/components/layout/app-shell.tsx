@@ -6,6 +6,7 @@ import {
   Database,
   NotebookPen,
   RefreshCw,
+  RotateCw,
   Settings2,
   ShieldCheck,
   UtensilsCrossed,
@@ -18,7 +19,6 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
 import { clearToken } from "@/lib/api"
 import { loadAiConfig, saveAiConfig } from "@/lib/ai-config"
 import { ConsoleProvider, useConsole } from "@/lib/console-store"
@@ -36,9 +36,10 @@ const RAIL_ITEMS = [
 function Rail() {
   const location = useLocation()
   const navigate = useNavigate()
-  const { online, syncCount, triggerSync } = useConsole()
+  const { online, syncCount, triggerSync, refreshAll, loading } = useConsole()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
 
   async function handleSync() {
     setSyncing(true)
@@ -47,6 +48,14 @@ function Rail() {
     toast.success("已完成多端增量数据同步", {
       description: `今日累计同步 ${syncCount + 1} 次`,
     })
+  }
+
+  /** 全局刷新：清空所有页面缓存并重新拉取数据 */
+  async function handleRefreshAll() {
+    setRefreshing(true)
+    await refreshAll()
+    setRefreshing(false)
+    toast.success("数据已刷新")
   }
 
   return (
@@ -85,6 +94,14 @@ function Rail() {
       </div>
 
       <div className="flex flex-col items-center gap-3.5 text-craft-muted">
+        <ConnectionBadge />
+        <button
+          onClick={handleRefreshAll}
+          title="刷新全部数据"
+          className="flex size-8 items-center justify-center rounded-lg transition hover:bg-black/5 hover:text-craft-ink"
+        >
+          <RotateCw className={`size-4 ${refreshing || loading ? "animate-spin" : ""}`} />
+        </button>
         <button
           onClick={handleSync}
           title="同步多端数据"
@@ -220,19 +237,19 @@ export function AppShell() {
   )
 }
 
-/** 平台连接状态徽标 */
+/** 平台连接状态徽标（侧边栏窄栏位，使用状态点 + 悬停提示） */
 export function ConnectionBadge() {
-  const { online } = useConsole()
+  const { online, authFailed } = useConsole()
+  const state = online
+    ? { dot: "bg-emerald-500", label: "后端已连接", title: "后端链路正常，读取的是真实数据" }
+    : authFailed
+      ? { dot: "bg-rose-500", label: "令牌无效 (401)", title: "后端可达，但管理员令牌被拒绝（401）—— 请重新登录" }
+      : { dot: "bg-amber-500", label: "演示数据模式", title: "后端不可达，当前展示本地演示数据" }
+
   return (
-    <Badge
-      variant="outline"
-      className={`h-5 px-1.5 text-[10px] ${
-        online
-          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-          : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400"
-      }`}
-    >
-      {online ? "后端已连接" : "演示数据模式"}
-    </Badge>
+    <span className="relative flex h-2 w-2" title={state.title} aria-label={state.label}>
+      <span className={`absolute inline-flex h-full w-full rounded-full opacity-60 ${state.dot}`} />
+      <span className={`relative inline-flex h-2 w-2 rounded-full ${state.dot}`} />
+    </span>
   )
 }

@@ -5,13 +5,13 @@ import { CONSOLE_ENDPOINTS, SYNC_LOGS } from "@/lib/console-data"
 import { useConsole } from "@/lib/console-store"
 
 export default function Endpoints() {
-  const { triggerSync, online } = useConsole()
+  const { triggerSync, online, authFailed } = useConsole()
 
   return (
     <ConsoleWorkspace
       breadcrumb="全局配置 / 客户端端点与增量同步通道"
       footerLeft={`授权端点 ${CONSOLE_ENDPOINTS.length} 条 · 近期事件 ${SYNC_LOGS.length} 条`}
-      footerRight={online ? "后端链路正常" : "演示数据模式"}
+      footerRight={online ? "后端链路正常" : authFailed ? "管理员令牌被后端拒绝 (401)" : "演示数据模式"}
     >
       <div className="w-full space-y-6 console-fade-up">
         <div className="border border-craft-line rounded-2xl p-4 bg-background flex items-center justify-between gap-3">

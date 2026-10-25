@@ -16,7 +16,7 @@ import {
 import { AmbientBackground } from "@/components/layout/ambient-background"
 import { BrandMark } from "@/components/layout/brand-mark"
 import { GlassPanel } from "@/components/layout/glass-panel"
-import { api, clearApiBase, getToken, setApiBase, setToken } from "@/lib/api"
+import { api, clearApiBase, clearToken, getToken, isAuthError, setApiBase, setToken } from "@/lib/api"
 
 type LoginMode = "token" | "remote"
 
@@ -51,8 +51,17 @@ export default function Login() {
       await api.overview()
       toast.success("登录成功，欢迎回到云控后台")
       navigate("/overview")
-    } catch {
-      // 后端不可达时仍允许进入演示模式
+    } catch (err) {
+      if (isAuthError(err)) {
+        // 令牌无效：后端可达，只是鉴权被拒 —— 停在登录页让用户重新输入
+        setToken("", false)
+        clearToken()
+        toast.error("管理员令牌无效，已被后端拒绝（401）", {
+          description: "请确认令牌是否正确，或该令牌是否已被重置。",
+        })
+        return
+      }
+      // 后端确实不可达时仍允许进入演示模式
       toast.info("后端暂不可达，已进入演示数据模式")
       navigate("/overview")
     } finally {

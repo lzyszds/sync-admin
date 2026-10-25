@@ -70,10 +70,13 @@ VITE_API_BASE=https://sync.lzyszds.cn
 
 ```bash
 npm install
-npm run dev      # http://localhost:8989/console
-npm run build    # 产物输出到 dist/
+npm run dev        # http://localhost:8989/console
+npm run build      # 产物输出到 dist/
 npm run preview
+npm run typecheck  # tsc --noEmit
 ```
+
+Node 版本要求 `^20.19.0 || >=22.12.0`（见 `package.json` 的 `engines` 与 `.nvmrc`，CI 与本地保持一致）。
 
 Vite 已配置 `/admin` 与 `/uploads` 代理到 `https://sync.lzyszds.cn`，本地开发无需额外部署后端。
 
@@ -86,7 +89,69 @@ Vite 已配置 `/admin` 与 `/uploads` 代理到 `https://sync.lzyszds.cn`，本
 
 ## 部署
 
-构建后 `dist/` 目录部署到站点 `/console/` 路径下（`vite.config.ts` 中 `base: "/console"`）。
+本项目是**纯静态前端**（`npm run build` 产出 `dist/`，无 Node 运行时），采用「CI 构建 + rsync 发布到服务器静态目录」的方式部署，服务器由 Nginx 直接托管。
+
+### 一次性配置
+
+**1. GitHub 仓库变量**（Settings → Secrets and variables → Actions → Variables）
+
+| 变量 | 示例 | 说明 |
+| --- | --- | --- |
+| `SERVER_HOST` | `sync.lzyszds.cn` | 服务器地址 |
+| `SERVER_USER` | `root` | SSH 用户 |
+| `SERVER_PORT` | `22` | SSH 端口 |
+| `DEPLOY_PATH` | `/data/sync/console` | 服务器上存放 `/console/` 静态文件的目录 |
+
+**2. GitHub 仓库密钥**（Settings → Secrets and variables → Actions → Secrets）
+
+| 密钥 | 说明 |
+| --- | --- |
+| `SERVER_SSH_KEY` | 服务器 SSH 私钥内容（整段 PEM 文本） |
+| `SERVER_KNOWN_HOSTS` | 服务器 host 指纹行，`ssh-keyscan -H 服务器地址` 的输出（可选但推荐，避免中间人劫持） |
+| `TG_BOT_TOKEN` / `TG_CHAT_ID` | Telegram 通知（沿用已有配置） |
+
+**3. 服务器侧**
+
+```bash
+# 确认 rsync 已安装，且 Nginx 静态目录与 DEPLOY_PATH 一致
+apt install rsync
+mkdir -p /data/sync/console
+```
+
+### 发布
+
+```bash
+# 打 tag 触发自动发布
+git tag v2.4.0 && git push origin v2.4.0
+
+# 或在 Actions 页面手动触发（可勾选 dry_run 仅预览）
+```
+
+发布流程：构建 → 类型检查 → 上传产物 → 配置 SSH → rsync 同步 → 健康检查 → Telegram 通知。
+
+### 本地手动发布
+
+```bash
+npm run build
+DEPLOY_HOST=root@sync.lzyszds.cn \
+DEPLOY_PATH=/data/sync/console \
+DEPLOY_HEALTH_URL=https://sync.lzyszds.cn/console/ \
+npm run deploy
+
+# 只预览差异，不真正上传
+DRY_RUN=1 DEPLOY_HOST=... DEPLOY_PATH=... npm run deploy
+```
+
+### 发布要点
+
+- `rsync --delete` 会删除目标目录中多余的旧文件（含旧 hash 的 JS/CSS），保证磁盘上不留残留。
+- `--delay-updates` 让所有文件传完后统一改名，避免更新过程中出现「HTML 已更新但资源还没到位」的半新半旧状态。
+- 健康检查请求**新产物**的 hash 文件名，并校验 `Content-Type` 是 JS —— 只看状态码会被 Nginx 的 SPA 回退骗过（未命中的路径同样返回 200 + HTML）。
+- 回滚：重新打一个旧版本 tag 再发布即可。
+
+### 为什么不用 Docker
+
+`dist/` 产物只有 6 个文件、约 640KB（HTML + JS + CSS + 静态资源），无服务端代码，容器化收益为零而成本明确。Docker 更适合有状态、需要持久化卷的后端服务。
 
 ## SEO
 

@@ -4,10 +4,12 @@ import { toast } from "sonner"
 import { Link2, Trash2 } from "lucide-react"
 import { ConsoleIconButton, ConsoleWorkspace } from "@/components/layout/console-workspace"
 import { ConsoleList, ConsoleListCard, ConsoleNav, ConsoleNavItem } from "@/components/layout/console-columns"
+import { RefreshButton } from "@/components/layout/load-progress"
 import { api } from "@/lib/api"
 import { useConsole } from "@/lib/console-store"
-import { DEMO_NOTES, NOTE_TAGS, renderNoteMarkdown } from "@/lib/console-data"
+import { DEMO_NOTES, NOTE_KIND_LABEL, denormalizeNote, normalizeNote, renderNoteMarkdown } from "@/lib/console-data"
 import { formatDate } from "@/lib/format"
+import { useCachedData } from "@/lib/use-cached-data"
 import type { ConsoleNote } from "@/lib/types"
 
 export default function Notes() {
@@ -15,8 +17,6 @@ export default function Notes() {
   const app = params.app || "notes"
   const { snapshots, online, recipes } = useConsole()
 
-  const [notes, setNotes] = useState<ConsoleNote[]>(DEMO_NOTES)
-  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [tag, setTag] = useState("全部")
   const [selectedId, setSelectedId] = useState<string>(DEMO_NOTES[0]?.id || "")
@@ -24,48 +24,57 @@ export default function Notes() {
   const tokenHash = params.tokenHash || snapshots.find((s) => s.app === app)?.tokenHash || ""
 
   const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      if (!tokenHash || !online) throw new Error("演示模式")
+    if (tokenHash && online) {
       const res = await api.snapshot(app, tokenHash)
       const raw = (res.data as Record<string, unknown>)?.notes
       if (!Array.isArray(raw) || raw.length === 0) throw new Error("无笔记数据")
-      setNotes(
-        raw.map((item, index) => {
-          const obj = (item || {}) as Record<string, unknown>
-          return {
-            id: String(obj.id || obj.编号 || `笔记-${201 + index}`),
-            title: String(obj.title || obj.标题 || "未命名笔记"),
-            tag: String(obj.tag || obj.标签 || NOTE_TAGS[0]),
-            pinned: Boolean(obj.pinned || obj.置顶),
-            device: String(obj.device || obj.来源设备 || "桌面网页"),
-            linkedRecipe: String(obj.linkedRecipe || obj.关联食谱 || ""),
-            content: String(obj.content || obj.内容 || ""),
-            updatedAt: String(obj.updatedAt || obj.更新时间 || ""),
-          } satisfies ConsoleNote
-        }),
-      )
-    } catch {
-      setNotes(DEMO_NOTES)
-    } finally {
-      setLoading(false)
+      return raw.map((item, index) => normalizeNote(item, index))
     }
+    // 演示模式：本地预置笔记
+    return DEMO_NOTES
   }, [app, tokenHash, online])
 
-  useEffect(() => {
-    void load()
-  }, [load])
+  // 缓存：切换路由命中缓存不重新请求，增删改或手动刷新才重新拉取
+  // 依赖 online：后端连接状态变化时（离线演示 → 在线真实数据）需要重新拉取
+  const cacheKey = `notes:${app}:${tokenHash}:${online ? "live" : "demo"}`
+  const {
+    data: notes,
+    loading,
+    refresh,
+    setData: setCachedNotes,
+  } = useCachedData<ConsoleNote[]>(cacheKey, load, {
+    enabled: !!tokenHash,
+    deps: [online],
+    // 演示兜底数据不写入缓存，避免污染真实数据缓存
+    cacheable: online,
+  })
+
+  const allNotes = useMemo(() => notes ?? [], [notes])
+
+  // 有效笔记（过滤手机端软删除），侧栏标签与计数全部由真实数据聚合
+  const visibleNotes = useMemo(() => allNotes.filter((n) => !n.deleted), [allNotes])
+
+  // 侧栏分类：取自真实笔记的标签并按出现频次排序，而不是写死的演示常量
+  const tagOptions = useMemo(() => {
+    const counter = new Map<string, number>()
+    for (const n of visibleNotes) {
+      for (const t of n.tags) counter.set(t, (counter.get(t) || 0) + 1)
+    }
+    return Array.from(counter.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([t]) => t)
+  }, [visibleNotes])
 
   const filtered = useMemo(() => {
-    let list = notes.filter((n) => (tag === "全部" ? true : n.tag === tag))
+    let list = visibleNotes.filter((n) => (tag === "全部" ? true : n.tags.includes(tag)))
     if (search.trim()) {
       const key = search.trim().toLowerCase()
-      list = list.filter((n) => `${n.title} ${n.content} ${n.tag}`.toLowerCase().includes(key))
+      list = list.filter((n) => `${n.title} ${n.content} ${n.tags.join(" ")}`.toLowerCase().includes(key))
     }
     return list
-  }, [notes, tag, search])
+  }, [visibleNotes, tag, search])
 
-  const active = notes.find((n) => n.id === selectedId) || filtered[0] || null
+  const active = visibleNotes.find((n) => n.id === selectedId) || filtered[0] || null
 
   function linkedRecipeName(id: string) {
     const hit = recipes.find((r) => r.id === id)
@@ -74,7 +83,7 @@ export default function Notes() {
 
   function updateNote(patch: Partial<ConsoleNote>) {
     if (!active) return
-    setNotes((prev) => prev.map((n) => (n.id === active.id ? { ...n, ...patch } : n)))
+    setCachedNotes((prev) => (prev ?? []).map((n) => (n.id === active.id ? { ...n, ...patch } : n)))
   }
 
   async function persist() {
@@ -82,7 +91,15 @@ export default function Notes() {
     try {
       const detail = await api.snapshot(app, tokenHash)
       const data = (detail.data || {}) as Record<string, unknown>
-      await api.updateSnapshotData(app, tokenHash, { ...data, notes })
+      const remote = Array.isArray(data.notes) ? (data.notes as unknown[]) : []
+      const remoteById = new Map<string, unknown>()
+      for (const item of remote) {
+        const id = String((item as Record<string, unknown>)?.id || "")
+        if (id) remoteById.set(id, item)
+      }
+      // 还原成手机端结构后再写回，避免丢失 attachments / kind / createdAt 等字段
+      const payload = allNotes.map((n) => denormalizeNote(n, remoteById.get(n.id)))
+      await api.updateSnapshotData(app, tokenHash, { ...data, notes: payload })
       toast.success("笔记已写入云端并同步至各端")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "写入失败")
@@ -91,7 +108,8 @@ export default function Notes() {
 
   function removeNote() {
     if (!active) return
-    setNotes((prev) => prev.filter((n) => n.id !== active.id))
+    setCachedNotes((prev) => (prev ?? []).filter((n) => n.id !== active.id))
+    void persist()
     toast.success("笔记已删除")
   }
 
@@ -99,18 +117,27 @@ export default function Notes() {
     <ConsoleWorkspace
       breadcrumb={`笔记表 / ${tag === "全部" ? "全部云笔记" : tag}${active ? ` / ${active.title}` : ""}`}
       headerRight={
-        <ConsoleIconButton title="删除当前笔记" onClick={removeNote} disabled={!active}>
-          <Trash2 className="w-3.5 h-3.5" />
-        </ConsoleIconButton>
+        <>
+          <RefreshButton onClick={() => void refresh()} loading={loading} />
+          <ConsoleIconButton title="删除当前笔记" onClick={removeNote} disabled={!active}>
+            <Trash2 className="w-3.5 h-3.5" />
+          </ConsoleIconButton>
+        </>
       }
       nav={
         <ConsoleNav title="云笔记" footerLabel="当前数据表" footerValue="笔记表">
-          {["全部", ...NOTE_TAGS].map((t) => (
+          <ConsoleNavItem
+            active={tag === "全部"}
+            label="全部云笔记"
+            count={visibleNotes.length}
+            onClick={() => setTag("全部")}
+          />
+          {tagOptions.map((t) => (
             <ConsoleNavItem
               key={t}
               active={tag === t}
-              label={t === "全部" ? "全部云笔记" : t}
-              count={t === "全部" ? notes.length : notes.filter((n) => n.tag === t).length}
+              label={t}
+              count={visibleNotes.filter((n) => n.tags.includes(t)).length}
               onClick={() => setTag(t)}
             />
           ))}
@@ -121,26 +148,23 @@ export default function Notes() {
           search={search}
           onSearch={setSearch}
           placeholder="搜索标题、正文、标签..."
-          countText={`共 ${filtered.length} 条笔记`}
-        >
-          {loading ? (
-            <div className="py-12 text-center text-xs text-craft-muted">加载中...</div>
-          ) : filtered.length === 0 ? (
-            <div className="py-12 text-center text-xs text-craft-muted">暂无匹配的笔记</div>
-          ) : (
-            filtered.map((n) => (
-              <ConsoleListCard
-                key={n.id}
-                active={n.id === active?.id}
-                onClick={() => setSelectedId(n.id)}
-                title={`${n.pinned ? "📌 " : ""}${n.title}`}
-                description={n.content.replace(/[#*`>-]/g, "").trim()}
-                trailing={n.device}
-                dotColor={n.pinned ? "#FACC15" : "#C9C9C4"}
-              />
-            ))
+          countText={`共 ${filtered.length} 条笔记${filtered.length !== visibleNotes.length ? ` / 全量 ${visibleNotes.length} 条` : ""}`}
+          items={filtered}
+          loading={loading}
+          loadingText="正在加载笔记..."
+          emptyText="暂无匹配的笔记"
+          estimateHeight={72}
+          renderItem={(n: ConsoleNote) => (
+            <ConsoleListCard
+              active={n.id === active?.id}
+              onClick={() => setSelectedId(n.id)}
+              title={`${n.pinned ? "📌 " : ""}${n.title}`}
+              description={n.content.replace(/[#*`>-]/g, "").trim()}
+              trailing={n.device}
+              dotColor={n.pinned ? "#FACC15" : "#C9C9C4"}
+            />
           )}
-        </ConsoleList>
+        />
       }
       footerLeft={active ? `最后修改：${formatDate(active.updatedAt)} · 来源：${active.device}` : "暂无记录"}
       footerRight={active?.linkedRecipe ? `关联食谱：${active.linkedRecipe}` : "未关联食谱"}
@@ -153,16 +177,22 @@ export default function Notes() {
               <span className="font-mono text-[11px] text-craft-muted">{active.id}</span>
               <select
                 value={active.tag}
-                onChange={(e) => updateNote({ tag: e.target.value })}
+                onChange={(e) => {
+                  const next = e.target.value
+                  updateNote({ tag: next, tags: [next, ...active.tags.filter((t) => t !== next)] })
+                }}
                 className="bg-craft-list border border-craft-line rounded-lg px-2 py-1 text-xs text-craft-ink focus:outline-none"
               >
-                {NOTE_TAGS.map((t) => (
+                {/* 选项来自真实笔记的标签；当前标签若不在其中也补上，避免选中态丢失 */}
+                {Array.from(new Set([active.tag, ...tagOptions])).map((t) => (
                   <option key={t} value={t}>
                     {t}
                   </option>
                 ))}
               </select>
               <span className="text-[11px] text-craft-muted">
+                {NOTE_KIND_LABEL[active.kind] ? `${NOTE_KIND_LABEL[active.kind]} · ` : ""}
+                {active.attachmentCount > 0 ? `${active.attachmentCount} 附件 · ` : ""}
                 {active.pinned ? "已置顶 · " : ""}
                 {active.device}
               </span>

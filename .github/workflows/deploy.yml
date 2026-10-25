@@ -1,0 +1,136 @@
+name: Deploy Console
+
+# 打 tag 才发布，避免 main 每次推送都动线上
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的版本标签（如 v2.4.0），留空则用当前提交'
+        required: false
+        default: ''
+      dry_run:
+        description: '仅预览将要同步的文件，不真正上传'
+        type: boolean
+        default: false
+
+# 同一时间只允许一个发布任务，避免并发覆盖线上目录
+concurrency:
+  group: deploy-console
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: 构建
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 读取版本号
+        id: version
+        run: |
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo 'dev')"
+          fi
+          echo "version=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "发布版本：${TAG}"
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 类型检查
+        run: npx tsc --noEmit
+
+      - name: 构建
+        run: npm run build
+
+      - name: 校验产物
+        run: |
+          test -f dist/index.html || { echo "dist/index.html 缺失"; exit 1; }
+          echo "产物清单："
+          ls -lh dist/assets/
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-dist
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
+
+  deploy:
+    name: 发布
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://sync.lzyszds.cn/console/
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 下载产物
+        uses: actions/download-artifact@v4
+        with:
+          name: console-dist
+          path: dist
+
+      - name: 配置 SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # 固定服务器指纹，避免首次连接被中间人劫持
+          if [ -n "${{ secrets.SERVER_KNOWN_HOSTS }}" ]; then
+            echo "${{ secrets.SERVER_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+            chmod 644 ~/.ssh/known_hosts
+          else
+            ssh-keyscan -H "${{ vars.SERVER_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          fi
+
+      - name: 发布到服务器
+        env:
+          DEPLOY_HOST: ${{ vars.SERVER_USER }}@${{ vars.SERVER_HOST }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          DEPLOY_PORT: ${{ vars.SERVER_PORT }}
+          DEPLOY_HEALTH_URL: https://sync.lzyszds.cn/console/
+          DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
+        run: |
+          chmod +x scripts/deploy.sh
+          ./scripts/deploy.sh
+
+      - name: 通知发布结果
+        if: always()
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          chmod +x scripts/notify-tg.sh
+          TITLE="✅ 云控后台已发布 ${{ needs.build.outputs.version }}"
+          if [ "${{ job.status }}" != "success" ]; then
+            TITLE="❌ 云控后台发布失败"
+          fi
+          BODY="仓库: ${{ github.repository }}
+          提交: ${{ github.sha }}
+          触发: ${{ github.event_name }}
+          链接: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          ./scripts/notify-tg.sh "$TITLE" "$BODY" || echo "::warning::Telegram 通知发送失败"

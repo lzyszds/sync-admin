@@ -1,0 +1,12 @@
+# 保证 Shell 脚本与 CI 配置始终以 LF 存储
+# 否则在 Windows 上 checkout 后被转成 CRLF，Linux runner 执行时会报
+# "/usr/bin/env bash^M: bad interpreter" 或 YAML 解析异常
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.nvmrc text eol=lf
+
+# Windows 批处理保持 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

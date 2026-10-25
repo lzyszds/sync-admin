@@ -12,7 +12,7 @@ const APP_LABEL: Record<string, string> = {
 }
 
 export default function Overview() {
-  const { overview, apps, snapshots, online, syncCount, lastSyncAt } = useConsole()
+  const { overview, apps, snapshots, online, authFailed, syncCount, lastSyncAt } = useConsole()
 
   const stats = [
     {
@@ -53,7 +53,13 @@ export default function Overview() {
     <ConsoleWorkspace
       breadcrumb="全局概览 / 多端应用数据与业务逻辑中枢"
       footerLeft={`共 ${overview.totalSnapshots ?? 0} 份快照 · ${apps.length} 个应用租户`}
-      footerRight={online ? "后端链路正常 · 增量下发中" : "演示数据模式 · 后端未连接"}
+      footerRight={
+        online
+          ? "后端链路正常 · 增量下发中"
+          : authFailed
+            ? "管理员令牌被后端拒绝 (401) · 请重新登录"
+            : "演示数据模式 · 后端未连接"
+      }
     >
       <div className="w-full space-y-8 console-fade-up">
         {/* 核心指标 */}

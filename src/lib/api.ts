@@ -6,6 +6,7 @@ import type {
   Overview,
   Recipe,
   RecipesResponse,
+  Snapshot,
   SnapshotDetail,
   SnapshotsResponse,
 } from "@/lib/types"
@@ -61,6 +62,11 @@ export class ApiError extends Error {
   }
 }
 
+/** 鉴权失败（令牌无效/无权限）—— 与「网络不可达」区分开，便于给出准确提示 */
+export function isAuthError(err: unknown): boolean {
+  return err instanceof ApiError && (err.status === 401 || err.status === 403)
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = getToken()
   const headers = new Headers(init.headers || {})
@@ -95,12 +101,108 @@ function qs(params: Record<string, string | number | undefined>) {
   return s ? `?${s}` : ""
 }
 
+/**
+ * 分页拉取指定用户快照下的全部食谱。
+ *
+ * 服务端的 limit 可能存在上限（请求 200 只返回 100），
+ * 因此这里按「实际返回条数」递增 offset 循环拉取，直到累计数量达到 total。
+ * 同时按 id 去重，避免服务端忽略 offset 时产生重复记录。
+ *
+ * onChunk 每收到一页就回调一次（携带累计结果），调用方可边收边渲染，
+ * 不必等待全部分页请求结束。
+ */
+async function fetchAllRecipes(
+  app: string,
+  tokenHash: string,
+  params: { search?: string; category?: string; difficulty?: string } = {},
+  pageSize = 200,
+  onChunk?: (partial: RecipesResponse) => void
+): Promise<RecipesResponse> {
+  const path = `/admin/snapshots/${encodeURIComponent(app)}/${encodeURIComponent(tokenHash)}/recipes`
+  const collected: Recipe[] = []
+  const seen = new Set<string>()
+  let offset = 0
+  let total = Number.POSITIVE_INFINITY
+  let facets = { categories: [] as string[], difficulties: [] as string[] }
+  let stats = { totalRecipes: 0 }
+
+  const snapshot = (): RecipesResponse => ({
+    ok: true,
+    total: typeof total === "number" ? total : collected.length,
+    limit: collected.length,
+    offset: 0,
+    recipes: collected,
+    facets,
+    stats: { totalRecipes: stats.totalRecipes || collected.length },
+  })
+
+  // 上限保护：最多 50 页（约 10000 条），避免服务端异常时死循环
+  for (let page = 0; page < 50; page++) {
+    const res = await request<RecipesResponse>(`${path}${qs({ ...params, limit: pageSize, offset })}`)
+    const items = Array.isArray(res.recipes) ? res.recipes : []
+    for (const item of items) {
+      if (item && item.id && !seen.has(item.id)) {
+        seen.add(item.id)
+        collected.push(item)
+      }
+    }
+    if (res.facets) facets = res.facets
+    if (res.stats) stats = res.stats
+    if (typeof res.total === "number") total = res.total
+    // 每页到达即回调，让界面边收边渲染
+    onChunk?.(snapshot())
+    if (!items.length) break
+    offset += items.length
+    if (collected.length >= total) break
+  }
+
+  return snapshot()
+}
+
 export const api = {
   overview: () => request<Overview>("/admin/overview"),
   apps: () => request<{ ok: boolean; apps: AppStat[] }>("/admin/apps"),
 
   snapshots: (params: { app?: string; limit?: number; offset?: number }) =>
     request<SnapshotsResponse>(`/admin/snapshots${qs(params)}`),
+
+  /** 拉取全部快照（自动翻页，onChunk 每页到达即回调） */
+  allSnapshots: async (
+    params: { app?: string } = {},
+    pageSize = 100,
+    onChunk?: (partial: SnapshotsResponse) => void
+  ): Promise<SnapshotsResponse> => {
+    const collected: Snapshot[] = []
+    const seen = new Set<string>()
+    let offset = 0
+    let total = Number.POSITIVE_INFINITY
+
+    const snapshot = (): SnapshotsResponse => ({
+      ok: true,
+      total: typeof total === "number" ? total : collected.length,
+      limit: collected.length,
+      offset: 0,
+      snapshots: collected,
+    })
+
+    for (let page = 0; page < 50; page++) {
+      const res = await request<SnapshotsResponse>(`/admin/snapshots${qs({ ...params, limit: pageSize, offset })}`)
+      const items = Array.isArray(res.snapshots) ? res.snapshots : []
+      for (const item of items) {
+        const key = `${item.app}:${item.tokenHash}`
+        if (!seen.has(key)) {
+          seen.add(key)
+          collected.push(item)
+        }
+      }
+      if (typeof res.total === "number") total = res.total
+      onChunk?.(snapshot())
+      if (!items.length) break
+      offset += items.length
+      if (collected.length >= total) break
+    }
+    return snapshot()
+  },
 
   snapshot: (app: string, tokenHash: string) =>
     request<SnapshotDetail>(`/admin/snapshots/${encodeURIComponent(app)}/${encodeURIComponent(tokenHash)}`),
@@ -113,6 +215,14 @@ export const api = {
     request<RecipesResponse>(
       `/admin/snapshots/${encodeURIComponent(app)}/${encodeURIComponent(tokenHash)}/recipes${qs(params)}`
     ),
+
+  /** 拉取某用户快照下的全部食谱（自动翻页，onChunk 每页到达即回调） */
+  allRecipes: (
+    app: string,
+    tokenHash: string,
+    params: { search?: string; category?: string; difficulty?: string } = {},
+    onChunk?: (partial: RecipesResponse) => void
+  ) => fetchAllRecipes(app, tokenHash, params, 200, onChunk),
 
   createRecipe: (app: string, tokenHash: string, recipe: Partial<Recipe>) =>
     request<{ ok: boolean; recipe: Recipe; updatedAt: string }>(

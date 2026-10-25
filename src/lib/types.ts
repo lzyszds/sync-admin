@@ -150,14 +150,30 @@ export interface SyncLog {
   size: string
 }
 
-/** 随手备忘笔记（笔记业务应用） */
+/**
+ * 随手备忘笔记（笔记业务应用）
+ *
+ * 字段与手机端 lzyRecipe 的 Note 结构对齐：
+ *   id / kind / title / content / attachments / tags[] / createdAt / updatedAt / deleted?
+ * 另兼容控制台自行写入的中文字段（编号 / 标签 / 置顶 / 来源设备 / 关联食谱 / 内容 / 更新时间）。
+ */
 export interface ConsoleNote {
   id: string
   title: string
+  /** 主标签（tags 的第一项），用于列表展示与筛选 */
   tag: string
+  /** 全部标签，手机端为数组；侧栏分类由真实数据聚合而来 */
+  tags: string[]
+  /** 笔记类型：idea 灵感 / bug 问题 */
+  kind: string
   pinned: boolean
   device: string
   linkedRecipe: string
   content: string
+  /** 附件数量（手机端附件为 base64 内联，仅计数不落库） */
+  attachmentCount: number
+  createdAt: string
   updatedAt: string
+  /** 软删除标记：手机端删除后仍留在快照里，不应展示 */
+  deleted: boolean
 }

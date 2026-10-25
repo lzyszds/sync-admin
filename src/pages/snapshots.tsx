@@ -131,23 +131,20 @@ export default function Snapshots() {
           onSearch={setSearch}
           placeholder="搜索应用代号或令牌..."
           countText={`共 ${filtered.length} 份快照`}
-        >
-          {filtered.length === 0 ? (
-            <div className="py-12 text-center text-xs text-craft-muted">暂无匹配的快照</div>
-          ) : (
-            filtered.map((s) => (
-              <ConsoleListCard
-                key={`${s.app}-${s.tokenHash}`}
-                active={s.tokenHash === selected?.tokenHash && s.app === selected?.app}
-                onClick={() => setSelected(s)}
-                title={`${s.app} · ${s.tokenPrefix}`}
-                description={formatDate(s.updatedAt)}
-                trailing={formatBytes(s.dataBytes)}
-                dotColor={s.app === "recipe" ? "#F97316" : s.app === "notes" ? "#8B5CF6" : "#10B981"}
-              />
-            ))
+          items={filtered}
+          emptyText="暂无匹配的快照"
+          estimateHeight={72}
+          renderItem={(s: Snapshot) => (
+            <ConsoleListCard
+              active={s.tokenHash === selected?.tokenHash && s.app === selected?.app}
+              onClick={() => setSelected(s)}
+              title={`${s.app} · ${s.tokenPrefix}`}
+              description={formatDate(s.updatedAt)}
+              trailing={formatBytes(s.dataBytes)}
+              dotColor={s.app === "recipe" ? "#F97316" : s.app === "notes" ? "#8B5CF6" : "#10B981"}
+            />
           )}
-        </ConsoleList>
+        />
       }
       footerLeft={selected ? `快照：${selected.app} / ${selected.tokenPrefix} · ${formatBytes(selected.dataBytes)}` : "暂无快照"}
       footerRight={selected ? `最近同步：${formatDate(selected.updatedAt)}` : ""}

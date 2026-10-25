@@ -149,12 +149,24 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* 全局移除默认 outline（避免聚焦时出现浏览器默认描边） */
+  :focus,
+  :focus-visible,
+  :focus-within {
+    outline: none;
+  }
   body {
     @apply text-foreground antialiased;
     background-color: #f3f3f1;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     overflow-x: hidden;
   }
+}
+
+/* 可选中文本（源码 / JSON 预览区） */
+.selectable {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* 极简滚动条 */
@@ -211,7 +223,8 @@
 
 /* 高密度数据网格 */
 .dense-table { width: 100%; border-collapse: collapse; }
-.dense-table.fixed { table-layout: fixed; }
+/* 注意：不要使用 .fixed 作为修饰类名 —— Tailwind 的 fixed 工具类会设置 position: fixed */
+.dense-table-fixed { table-layout: fixed; }
 .dense-table th, .dense-table td {
   padding: 9px 12px;
   text-align: left;

@@ -424,6 +424,11 @@ export const DEMO_NOTES: ConsoleNote[] = [
     id: "笔记-201",
     title: "生炒排骨研发试菜参数调整记录",
     tag: "#食谱研发",
+    tags: ["#食谱研发"],
+    kind: "idea",
+    attachmentCount: 0,
+    createdAt: "2026-05-14 12:00:00",
+    deleted: false,
     pinned: true,
     device: "苹果端",
     linkedRecipe: "rec_101",
@@ -442,6 +447,11 @@ export const DEMO_NOTES: ConsoleNote[] = [
     id: "笔记-202",
     title: "客户端离线同步协议与结构规范",
     tag: "#开发笔记",
+    tags: ["#开发笔记"],
+    kind: "idea",
+    attachmentCount: 0,
+    createdAt: "2026-05-14 12:00:00",
+    deleted: false,
     pinned: true,
     device: "桌面网页",
     linkedRecipe: "",
@@ -456,6 +466,11 @@ export const DEMO_NOTES: ConsoleNote[] = [
     id: "笔记-203",
     title: "川味回锅肉二刀肉选材与刀工备忘",
     tag: "#食谱研发",
+    tags: ["#食谱研发"],
+    kind: "idea",
+    attachmentCount: 0,
+    createdAt: "2026-05-14 12:00:00",
+    deleted: false,
     pinned: false,
     device: "苹果端",
     linkedRecipe: "rec_102",
@@ -472,6 +487,11 @@ export const DEMO_NOTES: ConsoleNote[] = [
     id: "笔记-204",
     title: "本周家庭采购清单与周末家常菜单规划",
     tag: "#生活备忘",
+    tags: ["#生活备忘"],
+    kind: "idea",
+    attachmentCount: 0,
+    createdAt: "2026-05-14 12:00:00",
+    deleted: false,
     pinned: false,
     device: "安卓端",
     linkedRecipe: "rec_103",
@@ -488,6 +508,11 @@ export const DEMO_NOTES: ConsoleNote[] = [
     id: "笔记-205",
     title: "移动端食谱卡片摘要字数规范",
     tag: "#随手记",
+    tags: ["#随手记"],
+    kind: "idea",
+    attachmentCount: 0,
+    createdAt: "2026-05-14 12:00:00",
+    deleted: false,
     pinned: false,
     device: "桌面网页",
     linkedRecipe: "rec_104",
@@ -502,8 +527,68 @@ export const DEMO_NOTES: ConsoleNote[] = [
   },
 ]
 
-/** 笔记标签 */
+/** 笔记标签（仅用于演示数据兜底；真实标签由快照数据动态聚合） */
 export const NOTE_TAGS = ["#食谱研发", "#开发笔记", "#生活备忘", "#随手记"]
+
+/** 笔记类型中文名 */
+export const NOTE_KIND_LABEL: Record<string, string> = {
+  idea: "灵感",
+  bug: "问题",
+}
+
+/**
+ * 将快照中的原始笔记归一化为控制台结构。
+ *
+ * 手机端 lzyRecipe 的 Note 结构为：
+ *   { id, kind, title, content, attachments[], tags[], createdAt, updatedAt, deleted? }
+ * 同时兼容控制台历史写入的中文字段。
+ */
+export function normalizeNote(item: unknown, index = 0): ConsoleNote {
+  const obj = (item || {}) as Record<string, unknown>
+
+  // 标签：手机端是数组，控制台历史数据是单值字符串
+  const rawTags = Array.isArray(obj.tags)
+    ? obj.tags.map((t) => String(t ?? "").trim()).filter(Boolean)
+    : obj.tag || obj.标签
+      ? [String(obj.tag ?? obj.标签).trim()].filter(Boolean)
+      : []
+  const tags = rawTags.length ? rawTags : [NOTE_TAGS[0]]
+
+  const attachments = Array.isArray(obj.attachments) ? obj.attachments : []
+
+  return {
+    id: String(obj.id || obj.编号 || `笔记-${201 + index}`),
+    title: String(obj.title || obj.标题 || "未命名笔记"),
+    tag: tags[0],
+    tags,
+    kind: String(obj.kind || obj.类型 || "idea"),
+    pinned: Boolean(obj.pinned || obj.置顶),
+    device: String(obj.device || obj.来源设备 || "桌面网页"),
+    linkedRecipe: String(obj.linkedRecipe || obj.关联食谱 || ""),
+    content: String(obj.content || obj.内容 || ""),
+    attachmentCount: attachments.length,
+    createdAt: String(obj.createdAt || obj.创建时间 || obj.updatedAt || obj.更新时间 || ""),
+    updatedAt: String(obj.updatedAt || obj.更新时间 || ""),
+    deleted: Boolean(obj.deleted),
+  }
+}
+
+/**
+ * 写回快照前，把控制台结构还原为手机端可识别的结构。
+ * 只改动控制台可见的字段，其余（attachments / kind / createdAt 等）原样保留。
+ */
+export function denormalizeNote(note: ConsoleNote, original?: unknown): Record<string, unknown> {
+  const base = (original && typeof original === "object" ? original : {}) as Record<string, unknown>
+  return {
+    ...base,
+    id: note.id,
+    title: note.title,
+    content: note.content,
+    tags: note.tags.length ? note.tags : [note.tag],
+    kind: note.kind,
+    updatedAt: note.updatedAt,
+  }
+}
 
 /** 轻量标记渲染（与预览区一致） */
 export function renderNoteMarkdown(md: string): string {

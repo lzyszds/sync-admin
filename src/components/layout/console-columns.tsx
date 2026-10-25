@@ -1,6 +1,14 @@
 import type { ReactNode } from "react"
+import { VirtualList } from "@/components/layout/virtual-list"
+import { LoadProgress } from "@/components/layout/load-progress"
 
-/** 第 3 栏：记录列表栏（白底搜索 + 计数排序 + 滚动列表） */
+/**
+ * 第 3 栏：记录列表栏（白底搜索 + 计数排序 + 滚动列表）
+ *
+ * 提供两种渲染方式：
+ *  - children：普通渲染（少量数据）
+ *  - items + renderItem：虚拟滚动渲染（上千条数据时只渲染可视区）
+ */
 export function ConsoleList({
   search,
   onSearch,
@@ -12,6 +20,14 @@ export function ConsoleList({
   sortIndicator = "↓↑",
   onSort,
   extra,
+  items,
+  renderItem,
+  estimateHeight = 68,
+  loading = false,
+  loadingText = "加载中...",
+  loaded = 0,
+  total = 0,
+  emptyText = "暂无匹配的数据",
   children,
 }: {
   search: string
@@ -24,12 +40,24 @@ export function ConsoleList({
   sortIndicator?: string
   onSort?: () => void
   extra?: ReactNode
-  children: ReactNode
+  /** 虚拟滚动：数据数组 */
+  items?: unknown[]
+  /** 虚拟滚动：条目渲染函数 */
+  renderItem?: (item: never, index: number) => ReactNode
+  /** 虚拟滚动：估算行高 */
+  estimateHeight?: number
+  loading?: boolean
+  loadingText?: string
+  /** 加载进度：已加载 / 总数 */
+  loaded?: number
+  total?: number
+  emptyText?: string
+  children?: ReactNode
 }) {
   return (
-    <div className="flex h-full flex-col bg-white/40">
-      <div className="p-3.5 pb-2">
-        <div className="flex items-center gap-2">
+    <div className="flex h-full min-w-0 w-full flex-col bg-white/40">
+      <div className="p-3.5 pb-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
           <div className="relative min-w-0 flex-1">
             <svg
               className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-craft-muted"
@@ -62,12 +90,12 @@ export function ConsoleList({
           )}
         </div>
 
-        {extra && <div className="mt-3 px-0.5">{extra}</div>}
+        {extra && <div className="mt-3 px-0.5 min-w-0">{extra}</div>}
 
         <div className="mt-3 flex items-center justify-between px-1 text-[11px] text-craft-muted">
           <span className="truncate">{countText}</span>
           {onSort && (
-            <button onClick={onSort} className="flex items-center gap-1 font-medium transition hover:text-craft-ink">
+            <button onClick={onSort} className="flex shrink-0 items-center gap-1 font-medium transition hover:text-craft-ink">
               <span>{sortLabel}</span>
               <span>{sortIndicator}</span>
             </button>
@@ -75,7 +103,24 @@ export function ConsoleList({
         </div>
       </div>
 
-      <div className="flex-1 space-y-1 overflow-y-auto px-2.5 py-1">{children}</div>
+      {items && renderItem ? (
+        <>
+          <LoadProgress loaded={loaded} total={total} visible={loading && loaded > 0} />
+          <VirtualList
+            items={items}
+            renderItem={renderItem as (item: unknown, index: number) => ReactNode}
+            estimateHeight={estimateHeight}
+            loading={loading}
+            loadingText={loadingText}
+            className="px-2.5 py-1"
+            emptyState={<div className="py-12 text-center text-xs text-craft-muted">{emptyText}</div>}
+          />
+        </>
+      ) : (
+        <div className="flex-1 min-w-0 space-y-1 overflow-y-auto overflow-x-hidden px-2.5 py-1">
+          {children}
+        </div>
+      )}
     </div>
   )
 }
@@ -100,18 +145,18 @@ export function ConsoleListCard({
     <div
       onClick={onClick}
       title={typeof title === "string" ? title : undefined}
-      className={`cursor-pointer rounded-xl border px-3.5 py-3 transition ${
+      className={`w-full min-w-0 cursor-pointer rounded-xl border px-3.5 py-3 transition ${
         active
           ? "border-craft-ink bg-craft-ink text-white shadow-sm"
           : "border-transparent bg-transparent text-craft-ink hover:bg-black/[0.03]"
       }`}
     >
-      <div className="mb-1 flex items-center justify-between gap-2">
+      <div className="mb-1 flex min-w-0 items-center justify-between gap-2">
         <h4 className="min-w-0 flex-1 truncate text-xs font-semibold">{title}</h4>
         {dotColor && <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: dotColor }} />}
       </div>
       {(description || trailing) && (
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center justify-between gap-2">
           {description && (
             <p className={`min-w-0 flex-1 truncate text-[11px] ${active ? "text-neutral-300" : "text-craft-muted"}`}>
               {description}
@@ -145,7 +190,7 @@ export function ConsoleNav({
   children: ReactNode
 }) {
   return (
-    <div className="flex h-full flex-col justify-between bg-white/55 p-3.5">
+    <div className="flex h-full min-w-0 w-full flex-col justify-between bg-white/55 p-3.5">
       <div className="min-w-0">
         <div className="mb-5 flex items-center justify-between gap-2 px-1.5">
           <span className="truncate text-[15px] font-bold tracking-tight text-craft-ink" title={title}>
