@@ -11,6 +11,8 @@
 #   DEPLOY_PORT        可选  SSH 端口，默认 22
 #   DEPLOY_SSH_KEY     可选  私钥路径，默认 ~/.ssh/id_ed25519
 #   DEPLOY_KNOWN_HOSTS 可选  known_hosts 路径，默认 ~/.ssh/known_hosts
+#   DEPLOY_EXCLUDE     可选  额外排除的文件/目录模式（空格分隔），如 "downloads"
+#   DEPLOY_CHOWN       可选  同步后把目标目录归属改为该属主，如 "www:www"
 #   DEPLOY_HEALTH_URL  可选  发布后健康检查地址，如 https://sync.lzyszds.cn/console/
 #   DRY_RUN            可选  设为 1 时只打印将要同步的文件，不真正上传
 #
@@ -74,13 +76,21 @@ SSH_OPTS=(
 RSYNC_OPTS=(
   -az                       # 压缩 + 递归
   --delete                  # 删除目标目录中已不存在于源目录的旧文件
-  --delete-excluded         # 同时清理被 --exclude 排除的文件
   --delay-updates           # 全部传完后统一改名，避免更新过程中出现半新半旧的页面
   --human-readable
   --stats
   --exclude=".DS_Store"
   --exclude="Thumbs.db"
 )
+
+# 额外排除项（如目标目录里存放的非构建产物目录）。
+# 注意：这里不要加 --delete-excluded，否则被排除的文件也会被删除。
+if [ -n "${DEPLOY_EXCLUDE:-}" ]; then
+  for pattern in ${DEPLOY_EXCLUDE}; do
+    RSYNC_OPTS+=("--exclude=${pattern}")
+  done
+  echo "[deploy] 额外排除：${DEPLOY_EXCLUDE}"
+fi
 
 if [ "${DRY_RUN}" = "1" ]; then
   echo "[deploy] DRY_RUN=1，仅预览不上传"
@@ -92,6 +102,15 @@ echo "[deploy] 开始同步..."
 rsync "${RSYNC_OPTS[@]}" -e "ssh ${SSH_OPTS[*]}" \
   "${DIST_DIR}/" "${HOST}:${TARGET}/"
 echo "[deploy] 同步完成"
+
+# --- 修正属主 -------------------------------------------------------------
+# nginx worker 通常以 www 等非 root 用户运行，同步后把属主改回来
+if [ -n "${DEPLOY_CHOWN:-}" ] && [ "${DRY_RUN}" != "1" ]; then
+  echo "[deploy] 设置属主为 ${DEPLOY_CHOWN} ..."
+  ssh "${SSH_OPTS[*]}" "${HOST}" "chown -R ${DEPLOY_CHOWN} '${TARGET}'" || {
+    echo "[deploy] 设置属主失败（不影响文件内容，忽略）" >&2
+  }
+fi
 
 # --- 健康检查 -------------------------------------------------------------
 # 用新产物里的 hash 文件名去请求线上，确认真正生效（而不是命中旧缓存或 SPA 回退）

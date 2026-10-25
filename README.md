@@ -97,10 +97,12 @@ Vite 已配置 `/admin` 与 `/uploads` 代理到 `https://sync.lzyszds.cn`，本
 
 | 变量 | 示例 | 说明 |
 | --- | --- | --- |
-| `SERVER_HOST` | `sync.lzyszds.cn` | 服务器地址 |
+| `SERVER_HOST` | `101.201.171.168` | 服务器地址 |
 | `SERVER_USER` | `root` | SSH 用户 |
 | `SERVER_PORT` | `22` | SSH 端口 |
-| `DEPLOY_PATH` | `/data/sync/console` | 服务器上存放 `/console/` 静态文件的目录 |
+| `DEPLOY_PATH` | `/www/wwwroot/sync.lzyszds.cn/console` | 服务器上存放 `/console/` 静态文件的目录（需与 Nginx `location /console/` 的 `alias` 一致） |
+| `DEPLOY_EXCLUDE` | `downloads` | 可选：额外排除的文件/目录（空格分隔），保护非构建产物 |
+| `DEPLOY_CHOWN` | `www:www` | 可选：同步后把目标目录属主改为该用户（Nginx worker 通常非 root） |
 
 **2. GitHub 仓库密钥**（Settings → Secrets and variables → Actions → Secrets）
 
@@ -115,8 +117,11 @@ Vite 已配置 `/admin` 与 `/uploads` 代理到 `https://sync.lzyszds.cn`，本
 ```bash
 # 确认 rsync 已安装，且 Nginx 静态目录与 DEPLOY_PATH 一致
 apt install rsync
-mkdir -p /data/sync/console
+mkdir -p /www/wwwroot/sync.lzyszds.cn/console
 ```
+
+> `DEPLOY_PATH` 必须与 Nginx 中 `location /console/` 的 `alias` 指向同一目录。
+> 可用 `nginx -T | grep -A 20 'server_name sync.lzyszds.cn'` 核对。
 
 ### 发布
 
@@ -133,8 +138,10 @@ git tag v2.4.0 && git push origin v2.4.0
 
 ```bash
 npm run build
-DEPLOY_HOST=root@sync.lzyszds.cn \
-DEPLOY_PATH=/data/sync/console \
+DEPLOY_HOST=root@101.201.171.168 \
+DEPLOY_PATH=/www/wwwroot/sync.lzyszds.cn/console \
+DEPLOY_EXCLUDE=downloads \
+DEPLOY_CHOWN=www:www \
 DEPLOY_HEALTH_URL=https://sync.lzyszds.cn/console/ \
 npm run deploy
 
@@ -145,6 +152,7 @@ DRY_RUN=1 DEPLOY_HOST=... DEPLOY_PATH=... npm run deploy
 ### 发布要点
 
 - `rsync --delete` 会删除目标目录中多余的旧文件（含旧 hash 的 JS/CSS），保证磁盘上不留残留。
+- `DEPLOY_EXCLUDE` 排除的文件**不会**被删除，可保护目标目录里存放的非构建产物（如 `downloads/`）。
 - `--delay-updates` 让所有文件传完后统一改名，避免更新过程中出现「HTML 已更新但资源还没到位」的半新半旧状态。
 - 健康检查请求**新产物**的 hash 文件名，并校验 `Content-Type` 是 JS —— 只看状态码会被 Nginx 的 SPA 回退骗过（未命中的路径同样返回 200 + HTML）。
 - 回滚：重新打一个旧版本 tag 再发布即可。

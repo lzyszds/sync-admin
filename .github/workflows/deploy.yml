@@ -112,6 +112,8 @@ jobs:
           DEPLOY_HOST: ${{ vars.SERVER_USER }}@${{ vars.SERVER_HOST }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           DEPLOY_PORT: ${{ vars.SERVER_PORT }}
+          DEPLOY_EXCLUDE: ${{ vars.DEPLOY_EXCLUDE }}
+          DEPLOY_CHOWN: ${{ vars.DEPLOY_CHOWN }}
           DEPLOY_HEALTH_URL: https://sync.lzyszds.cn/console/
           DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
         run: |
