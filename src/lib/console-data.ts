@@ -4,6 +4,7 @@ import type {
   ConsoleColumn,
   ConsoleEndpoint,
   ConsoleNote,
+  ConsoleFolder,
   ConsoleRule,
   Difficulty,
   Ingredient,
@@ -432,6 +433,8 @@ export const DEMO_NOTES: ConsoleNote[] = [
     pinned: true,
     device: "苹果端",
     linkedRecipe: "rec_101",
+    folderId: "",
+    sourcePath: "",
     updatedAt: "2026-05-14 14:25:00",
     content: `### 研发测试目标
 验证 **生炒排骨** 在不焯水前提下的最佳火候曲线与调味比例，确保移动端用户在家用燃气灶上完整复刻。
@@ -455,6 +458,8 @@ export const DEMO_NOTES: ConsoleNote[] = [
     pinned: true,
     device: "桌面网页",
     linkedRecipe: "",
+    folderId: "",
+    sourcePath: "",
     updatedAt: "2026-05-14 11:12:40",
     content: `### 多端同步架构说明
 当前后台管理系统同时接管 \`食谱表\` 与 \`笔记表\` 两张核心业务表。
@@ -474,6 +479,8 @@ export const DEMO_NOTES: ConsoleNote[] = [
     pinned: false,
     device: "苹果端",
     linkedRecipe: "rec_102",
+    folderId: "",
+    sourcePath: "",
     updatedAt: "2026-05-13 20:15:11",
     content: `### 选材要点
 正宗回锅肉首选猪后臀尖上方的 **坐臀肉（二刀肉）**，肥瘦比例约 4:6。
@@ -495,6 +502,8 @@ export const DEMO_NOTES: ConsoleNote[] = [
     pinned: false,
     device: "安卓端",
     linkedRecipe: "rec_103",
+    folderId: "",
+    sourcePath: "",
     updatedAt: "2026-05-13 16:40:05",
     content: `### 生鲜采购清单
 - [x] 新鲜猪肋排 450克（生炒排骨用）
@@ -516,6 +525,8 @@ export const DEMO_NOTES: ConsoleNote[] = [
     pinned: false,
     device: "桌面网页",
     linkedRecipe: "rec_104",
+    folderId: "",
+    sourcePath: "",
     updatedAt: "2026-05-12 09:50:22",
     content: `### 客户端双列瀑布流排版约束
 为了保证主流手机屏幕下食谱卡片高度一致：
@@ -527,7 +538,7 @@ export const DEMO_NOTES: ConsoleNote[] = [
   },
 ]
 
-/** 笔记标签（仅用于演示数据兜底；真实标签由快照数据动态聚合） */
+/** 笔记标签（仅用于演示数据兜底；真实分类由快照数据的文件夹决定） */
 export const NOTE_TAGS = ["#食谱研发", "#开发笔记", "#生活备忘", "#随手记"]
 
 /** 笔记类型中文名 */
@@ -536,58 +547,122 @@ export const NOTE_KIND_LABEL: Record<string, string> = {
   bug: "问题",
 }
 
+/** 随手备忘应用负载 */
+export interface NotesPayload {
+  notes: unknown[]
+  folders: unknown[]
+  activeId: string
+  /** 上报来源设备（如 devNotes Desktop） */
+  deviceInfo: string
+}
+
+/**
+ * 从快照 data 中提取随手备忘的应用负载。
+ *
+ * 服务端返回的 data 有两种形态：
+ *   1. { app, data: { notes, folders, savedAt, activeId }, summary, version, ... }
+ *      —— 手机端真实上报结构，真实笔记在 data.data.notes
+ *   2. { notes: [...], folders: [...] }
+ *      —— 扁平结构
+ * 另外 data.data 可能是 JSON 字符串（早期快照）。
+ */
+export function extractNotesPayload(data: unknown): NotesPayload | null {
+  if (!data || typeof data !== "object") return null
+  const root = data as Record<string, unknown>
+
+  // 优先取嵌套的 data.data
+  let appPayload = root.data
+  if (typeof appPayload === "string") {
+    try {
+      appPayload = JSON.parse(appPayload)
+    } catch {
+      appPayload = null
+    }
+  }
+  if (!appPayload || typeof appPayload !== "object") {
+    appPayload = root
+  }
+
+  const notes = Array.isArray((appPayload as Record<string, unknown>).notes)
+    ? ((appPayload as Record<string, unknown>).notes as unknown[])
+    : []
+  const folders = Array.isArray((appPayload as Record<string, unknown>).folders)
+    ? ((appPayload as Record<string, unknown>).folders as unknown[])
+    : []
+  const activeId = String((appPayload as Record<string, unknown>).activeId || "")
+  const deviceInfo = String(root.deviceInfo || (appPayload as Record<string, unknown>).deviceInfo || "")
+
+  if (!notes.length && !folders.length) return null
+  return { notes, folders, activeId, deviceInfo }
+}
+
 /**
  * 将快照中的原始笔记归一化为控制台结构。
  *
- * 手机端 lzyRecipe 的 Note 结构为：
- *   { id, kind, title, content, attachments[], tags[], createdAt, updatedAt, deleted? }
- * 同时兼容控制台历史写入的中文字段。
+ * 随手备忘应用上报的字段：
+ *   { id, title, content, createdAt, updatedAt, sourceMtime?, sourcePath?, folderId? }
+ * 时间戳是 epoch 毫秒数字，保留原值交给 formatDate 解析。
  */
 export function normalizeNote(item: unknown, index = 0): ConsoleNote {
   const obj = (item || {}) as Record<string, unknown>
 
-  // 标签：手机端是数组，控制台历史数据是单值字符串
+  // 标签：部分历史快照用单值字符串
   const rawTags = Array.isArray(obj.tags)
     ? obj.tags.map((t) => String(t ?? "").trim()).filter(Boolean)
     : obj.tag || obj.标签
       ? [String(obj.tag ?? obj.标签).trim()].filter(Boolean)
       : []
-  const tags = rawTags.length ? rawTags : [NOTE_TAGS[0]]
+  const tags = rawTags.length ? rawTags : []
 
   const attachments = Array.isArray(obj.attachments) ? obj.attachments : []
 
   return {
     id: String(obj.id || obj.编号 || `笔记-${201 + index}`),
     title: String(obj.title || obj.标题 || "未命名笔记"),
-    tag: tags[0],
+    tag: tags[0] || "",
     tags,
-    kind: String(obj.kind || obj.类型 || "idea"),
+    kind: String(obj.kind || obj.类型 || ""),
     pinned: Boolean(obj.pinned || obj.置顶),
-    device: String(obj.device || obj.来源设备 || "桌面网页"),
+    device: String(obj.device || obj.来源设备 || ""),
     linkedRecipe: String(obj.linkedRecipe || obj.关联食谱 || ""),
+    folderId: String(obj.folderId || obj.文件夹 || ""),
     content: String(obj.content || obj.内容 || ""),
     attachmentCount: attachments.length,
-    createdAt: String(obj.createdAt || obj.创建时间 || obj.updatedAt || obj.更新时间 || ""),
-    updatedAt: String(obj.updatedAt || obj.更新时间 || ""),
-    deleted: Boolean(obj.deleted),
+    sourcePath: String(obj.sourcePath || obj.来源路径 || ""),
+    createdAt: (obj.createdAt ?? obj.创建时间 ?? obj.updatedAt ?? obj.更新时间 ?? "") as string | number,
+    updatedAt: (obj.updatedAt ?? obj.更新时间 ?? "") as string | number,
+    deleted: Boolean(obj.deleted || obj.deletedAt),
+  }
+}
+
+/** 随手备忘文件夹（应用侧的分类维度） */
+export function normalizeFolder(item: unknown, index = 0): ConsoleFolder {
+  const obj = (item || {}) as Record<string, unknown>
+  return {
+    id: String(obj.id || obj.编号 || `文件夹-${index + 1}`),
+    name: String(obj.name || obj.名称 || "未命名文件夹"),
+    createdAt: (obj.createdAt ?? obj.创建时间 ?? "") as string | number,
+    updatedAt: (obj.updatedAt ?? obj.更新时间 ?? "") as string | number,
+    deleted: Boolean(obj.deleted || obj.deletedAt),
   }
 }
 
 /**
- * 写回快照前，把控制台结构还原为手机端可识别的结构。
- * 只改动控制台可见的字段，其余（attachments / kind / createdAt 等）原样保留。
+ * 写回快照前，把控制台结构还原为应用结构。
+ * 只改动控制台可见的字段，其余（attachments / kind / sourceMtime 等）原样保留。
  */
 export function denormalizeNote(note: ConsoleNote, original?: unknown): Record<string, unknown> {
   const base = (original && typeof original === "object" ? original : {}) as Record<string, unknown>
-  return {
+  const next: Record<string, unknown> = {
     ...base,
     id: note.id,
     title: note.title,
     content: note.content,
-    tags: note.tags.length ? note.tags : [note.tag],
-    kind: note.kind,
     updatedAt: note.updatedAt,
   }
+  if (note.folderId) next.folderId = note.folderId
+  if (note.tags.length) next.tags = note.tags
+  return next
 }
 
 /** 轻量标记渲染（与预览区一致） */

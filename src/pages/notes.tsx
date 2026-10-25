@@ -7,10 +7,13 @@ import { ConsoleList, ConsoleListCard, ConsoleNav, ConsoleNavItem } from "@/comp
 import { RefreshButton } from "@/components/layout/load-progress"
 import { api } from "@/lib/api"
 import { useConsole } from "@/lib/console-store"
-import { DEMO_NOTES, NOTE_KIND_LABEL, denormalizeNote, normalizeNote, renderNoteMarkdown } from "@/lib/console-data"
+import { DEMO_NOTES, denormalizeNote, extractNotesPayload, normalizeFolder, normalizeNote, renderNoteMarkdown } from "@/lib/console-data"
 import { formatDate } from "@/lib/format"
 import { useCachedData } from "@/lib/use-cached-data"
-import type { ConsoleNote } from "@/lib/types"
+import type { ConsoleFolder, ConsoleNote } from "@/lib/types"
+
+/** 预览区最多渲染的正文长度（应用里存在几十万字的长笔记，全量渲染会卡死页面） */
+const PREVIEW_LIMIT = 20000
 
 export default function Notes() {
   const params = useParams()
@@ -18,61 +21,81 @@ export default function Notes() {
   const { snapshots, online, recipes } = useConsole()
 
   const [search, setSearch] = useState("")
-  const [tag, setTag] = useState("全部")
-  const [selectedId, setSelectedId] = useState<string>(DEMO_NOTES[0]?.id || "")
+  const [folderId, setFolderId] = useState("全部")
+  const [selectedId, setSelectedId] = useState<string>("")
 
-  const tokenHash = params.tokenHash || snapshots.find((s) => s.app === app)?.tokenHash || ""
+  // 仅在连上后端后才从快照列表解析令牌：
+  // 快照列表加载完成前用的是演示数据里的假令牌，会白发一次 404
+  const tokenHash =
+    params.tokenHash || (online ? snapshots.find((s) => s.app === app)?.tokenHash || "" : "")
 
   const load = useCallback(async () => {
     if (tokenHash && online) {
       const res = await api.snapshot(app, tokenHash)
-      const raw = (res.data as Record<string, unknown>)?.notes
-      if (!Array.isArray(raw) || raw.length === 0) throw new Error("无笔记数据")
-      return raw.map((item, index) => normalizeNote(item, index))
+      // 真实负载在 data.data.notes（应用上报结构），不能读顶层 data.notes
+      const payload = extractNotesPayload(res.data)
+      if (!payload || !payload.notes.length) throw new Error("无笔记数据")
+      return {
+        notes: payload.notes.map((item, index) => normalizeNote(item, index)),
+        folders: payload.folders.map((item, index) => normalizeFolder(item, index)),
+        activeId: payload.activeId,
+        deviceInfo: payload.deviceInfo,
+      }
     }
     // 演示模式：本地预置笔记
-    return DEMO_NOTES
+    return {
+      notes: DEMO_NOTES,
+      folders: [] as ConsoleFolder[],
+      activeId: "",
+      deviceInfo: "",
+    }
   }, [app, tokenHash, online])
 
   // 缓存：切换路由命中缓存不重新请求，增删改或手动刷新才重新拉取
   // 依赖 online：后端连接状态变化时（离线演示 → 在线真实数据）需要重新拉取
   const cacheKey = `notes:${app}:${tokenHash}:${online ? "live" : "demo"}`
   const {
-    data: notes,
+    data,
     loading,
     refresh,
     setData: setCachedNotes,
-  } = useCachedData<ConsoleNote[]>(cacheKey, load, {
-    enabled: !!tokenHash,
-    deps: [online],
-    // 演示兜底数据不写入缓存，避免污染真实数据缓存
-    cacheable: online,
-  })
+  } = useCachedData<{ notes: ConsoleNote[]; folders: ConsoleFolder[]; activeId: string; deviceInfo: string }>(
+    cacheKey,
+    load,
+    {
+      enabled: !!tokenHash,
+      deps: [online],
+      // 演示兜底数据不写入缓存，避免污染真实数据缓存
+      cacheable: online,
+    }
+  )
 
-  const allNotes = useMemo(() => notes ?? [], [notes])
+  const allNotes = useMemo(() => {
+    if (data) return data.notes
+    // 后端不可达时回落到演示数据
+    return online ? [] : DEMO_NOTES
+  }, [data, online])
+  const allFolders = useMemo(() => data?.folders ?? [], [data])
+  const deviceInfo = data?.deviceInfo ?? ""
 
-  // 有效笔记（过滤手机端软删除），侧栏标签与计数全部由真实数据聚合
+  // 有效笔记（过滤软删除）
   const visibleNotes = useMemo(() => allNotes.filter((n) => !n.deleted), [allNotes])
 
-  // 侧栏分类：取自真实笔记的标签并按出现频次排序，而不是写死的演示常量
-  const tagOptions = useMemo(() => {
-    const counter = new Map<string, number>()
-    for (const n of visibleNotes) {
-      for (const t of n.tags) counter.set(t, (counter.get(t) || 0) + 1)
-    }
-    return Array.from(counter.entries())
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .map(([t]) => t)
-  }, [visibleNotes])
+  // 侧栏分类：应用侧的「文件夹」，取自真实快照数据
+  const folderOptions = useMemo(
+    () => allFolders.filter((f) => !f.deleted),
+    [allFolders]
+  )
 
   const filtered = useMemo(() => {
-    let list = visibleNotes.filter((n) => (tag === "全部" ? true : n.tags.includes(tag)))
+    let list = visibleNotes
+    if (folderId !== "全部") list = list.filter((n) => n.folderId === folderId)
     if (search.trim()) {
       const key = search.trim().toLowerCase()
-      list = list.filter((n) => `${n.title} ${n.content} ${n.tags.join(" ")}`.toLowerCase().includes(key))
+      list = list.filter((n) => `${n.title} ${n.content}`.toLowerCase().includes(key))
     }
     return list
-  }, [visibleNotes, tag, search])
+  }, [visibleNotes, folderId, search])
 
   const active = visibleNotes.find((n) => n.id === selectedId) || filtered[0] || null
 
@@ -83,23 +106,51 @@ export default function Notes() {
 
   function updateNote(patch: Partial<ConsoleNote>) {
     if (!active) return
-    setCachedNotes((prev) => (prev ?? []).map((n) => (n.id === active.id ? { ...n, ...patch } : n)))
+    setCachedNotes((prev) =>
+      prev
+        ? { ...prev, notes: prev.notes.map((n) => (n.id === active.id ? { ...n, ...patch } : n)) }
+        : prev
+    )
   }
 
   async function persist() {
-    if (!online || !tokenHash) return
+    // 只有真实数据才写回，绝不把演示兜底数据写到服务器
+    if (!online || !tokenHash || !data) return
     try {
       const detail = await api.snapshot(app, tokenHash)
-      const data = (detail.data || {}) as Record<string, unknown>
-      const remote = Array.isArray(data.notes) ? (data.notes as unknown[]) : []
+      const root = (detail.data || {}) as Record<string, unknown>
+
+      // 定位应用负载所在位置：data.data（嵌套）或 data（扁平）
+      let appPayload = root.data
+      let nested = false
+      if (typeof appPayload === "string") {
+        try {
+          appPayload = JSON.parse(appPayload)
+        } catch {
+          appPayload = null
+        }
+      }
+      if (!appPayload || typeof appPayload !== "object" || !Array.isArray((appPayload as Record<string, unknown>).notes)) {
+        appPayload = root
+        nested = false
+      } else {
+        nested = true
+      }
+      const payload = appPayload as Record<string, unknown>
+
+      const remote = Array.isArray(payload.notes) ? (payload.notes as unknown[]) : []
       const remoteById = new Map<string, unknown>()
       for (const item of remote) {
         const id = String((item as Record<string, unknown>)?.id || "")
         if (id) remoteById.set(id, item)
       }
-      // 还原成手机端结构后再写回，避免丢失 attachments / kind / createdAt 等字段
-      const payload = allNotes.map((n) => denormalizeNote(n, remoteById.get(n.id)))
-      await api.updateSnapshotData(app, tokenHash, { ...data, notes: payload })
+
+      // 还原成应用结构后再写回，避免丢失 sourceMtime / attachments 等字段
+      const nextNotes = allNotes.map((n) => denormalizeNote(n, remoteById.get(n.id)))
+      const nextPayload = { ...payload, notes: nextNotes }
+      const nextRoot = nested ? { ...root, data: nextPayload } : nextPayload
+
+      await api.updateSnapshotData(app, tokenHash, nextRoot)
       toast.success("笔记已写入云端并同步至各端")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "写入失败")
@@ -108,14 +159,16 @@ export default function Notes() {
 
   function removeNote() {
     if (!active) return
-    setCachedNotes((prev) => (prev ?? []).filter((n) => n.id !== active.id))
+    setCachedNotes((prev) =>
+      prev ? { ...prev, notes: prev.notes.filter((n) => n.id !== active.id) } : prev
+    )
     void persist()
     toast.success("笔记已删除")
   }
 
   return (
     <ConsoleWorkspace
-      breadcrumb={`笔记表 / ${tag === "全部" ? "全部云笔记" : tag}${active ? ` / ${active.title}` : ""}`}
+      breadcrumb={`笔记表 / ${folderId === "全部" ? "全部云笔记" : (folderOptions.find((f) => f.id === folderId)?.name ?? "文件夹")}${active ? ` / ${active.title}` : ""}`}
       headerRight={
         <>
           <RefreshButton onClick={() => void refresh()} loading={loading} />
@@ -127,18 +180,18 @@ export default function Notes() {
       nav={
         <ConsoleNav title="云笔记" footerLabel="当前数据表" footerValue="笔记表">
           <ConsoleNavItem
-            active={tag === "全部"}
+            active={folderId === "全部"}
             label="全部云笔记"
             count={visibleNotes.length}
-            onClick={() => setTag("全部")}
+            onClick={() => setFolderId("全部")}
           />
-          {tagOptions.map((t) => (
+          {folderOptions.map((f) => (
             <ConsoleNavItem
-              key={t}
-              active={tag === t}
-              label={t}
-              count={visibleNotes.filter((n) => n.tags.includes(t)).length}
-              onClick={() => setTag(t)}
+              key={f.id}
+              active={folderId === f.id}
+              label={f.name}
+              count={visibleNotes.filter((n) => n.folderId === f.id).length}
+              onClick={() => setFolderId(f.id)}
             />
           ))}
         </ConsoleNav>
@@ -147,7 +200,7 @@ export default function Notes() {
         <ConsoleList
           search={search}
           onSearch={setSearch}
-          placeholder="搜索标题、正文、标签..."
+          placeholder="搜索标题、正文..."
           countText={`共 ${filtered.length} 条笔记${filtered.length !== visibleNotes.length ? ` / 全量 ${visibleNotes.length} 条` : ""}`}
           items={filtered}
           loading={loading}
@@ -166,7 +219,11 @@ export default function Notes() {
           )}
         />
       }
-      footerLeft={active ? `最后修改：${formatDate(active.updatedAt)} · 来源：${active.device}` : "暂无记录"}
+      footerLeft={
+        active
+          ? `最后修改：${formatDate(active.updatedAt)}${active.device || deviceInfo ? ` · 来源：${active.device || deviceInfo}` : ""}`
+          : "暂无记录"
+      }
       footerRight={active?.linkedRecipe ? `关联食谱：${active.linkedRecipe}` : "未关联食谱"}
     >
       {active ? (
@@ -176,25 +233,22 @@ export default function Notes() {
             <div className="flex items-center gap-2.5 min-w-0">
               <span className="font-mono text-[11px] text-craft-muted">{active.id}</span>
               <select
-                value={active.tag}
-                onChange={(e) => {
-                  const next = e.target.value
-                  updateNote({ tag: next, tags: [next, ...active.tags.filter((t) => t !== next)] })
-                }}
+                value={active.folderId}
+                onChange={(e) => updateNote({ folderId: e.target.value })}
+                onBlur={() => void persist()}
                 className="bg-craft-list border border-craft-line rounded-lg px-2 py-1 text-xs text-craft-ink focus:outline-none"
               >
-                {/* 选项来自真实笔记的标签；当前标签若不在其中也补上，避免选中态丢失 */}
-                {Array.from(new Set([active.tag, ...tagOptions])).map((t) => (
-                  <option key={t} value={t}>
-                    {t}
+                <option value="">未归档</option>
+                {folderOptions.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
                   </option>
                 ))}
               </select>
               <span className="text-[11px] text-craft-muted">
-                {NOTE_KIND_LABEL[active.kind] ? `${NOTE_KIND_LABEL[active.kind]} · ` : ""}
                 {active.attachmentCount > 0 ? `${active.attachmentCount} 附件 · ` : ""}
-                {active.pinned ? "已置顶 · " : ""}
-                {active.device}
+                {active.device || deviceInfo}
+                {active.sourcePath ? ` · ${active.sourcePath}` : ""}
               </span>
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -219,6 +273,7 @@ export default function Notes() {
             type="text"
             value={active.title}
             onChange={(e) => updateNote({ title: e.target.value })}
+            onBlur={() => void persist()}
             placeholder="笔记标题"
             className="w-full bg-transparent border border-transparent hover:border-craft-line focus:border-craft-ink rounded-lg px-2 py-1.5 text-xl font-bold text-craft-ink focus:outline-none transition"
           />
@@ -260,7 +315,14 @@ export default function Notes() {
             <div className="flex flex-col">
               <span className="text-[11px] text-craft-muted mb-1.5">客户端实时渲染预览</span>
               <div className="selectable h-[420px] bg-craft-list border border-craft-line rounded-xl p-3.5 text-xs leading-relaxed text-craft-ink overflow-y-auto">
-                <div dangerouslySetInnerHTML={{ __html: renderNoteMarkdown(active.content) }} />
+                {/* 超长笔记（应用里存在几十万字的长文）全量渲染会卡死页面，这里截断预览 */}
+                <div dangerouslySetInnerHTML={{ __html: renderNoteMarkdown(active.content.slice(0, PREVIEW_LIMIT)) }} />
+                {active.content.length > PREVIEW_LIMIT && (
+                  <div className="mt-3 rounded-lg border border-dashed border-craft-line px-3 py-2 text-[11px] text-craft-muted">
+                    正文共 {active.content.length.toLocaleString("zh-CN")} 字，预览仅展示前 {PREVIEW_LIMIT.toLocaleString("zh-CN")} 字，
+                    完整内容请在左侧源码编辑器中查看。
+                  </div>
+                )}
               </div>
             </div>
           </div>

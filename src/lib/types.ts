@@ -150,30 +150,43 @@ export interface SyncLog {
   size: string
 }
 
+/** 随手备忘文件夹（应用侧的分类维度） */
+export interface ConsoleFolder {
+  id: string
+  name: string
+  createdAt: string | number
+  updatedAt: string | number
+  deleted: boolean
+}
+
 /**
  * 随手备忘笔记（笔记业务应用）
  *
- * 字段与手机端 lzyRecipe 的 Note 结构对齐：
- *   id / kind / title / content / attachments / tags[] / createdAt / updatedAt / deleted?
- * 另兼容控制台自行写入的中文字段（编号 / 标签 / 置顶 / 来源设备 / 关联食谱 / 内容 / 更新时间）。
+ * 字段与随手备忘应用（devNotes Desktop）上报的结构对齐：
+ *   id / title / content / createdAt / updatedAt / folderId? / tags[]?
+ * createdAt / updatedAt 可能是 epoch 毫秒数字，也可能是 ISO 字符串。
  */
 export interface ConsoleNote {
   id: string
   title: string
-  /** 主标签（tags 的第一项），用于列表展示与筛选 */
+  /** 主标签（tags 的第一项），应用本身没有标签时为空 */
   tag: string
-  /** 全部标签，手机端为数组；侧栏分类由真实数据聚合而来 */
+  /** 全部标签 */
   tags: string[]
-  /** 笔记类型：idea 灵感 / bug 问题 */
+  /** 笔记类型：idea 灵感 / bug 问题（应用未使用） */
   kind: string
   pinned: boolean
   device: string
   linkedRecipe: string
+  /** 所属文件夹 id（应用侧的分类维度） */
+  folderId: string
+  /** 来源文件路径（应用从本地文件导入的笔记会带这个字段） */
+  sourcePath: string
   content: string
-  /** 附件数量（手机端附件为 base64 内联，仅计数不落库） */
+  /** 附件数量 */
   attachmentCount: number
-  createdAt: string
-  updatedAt: string
-  /** 软删除标记：手机端删除后仍留在快照里，不应展示 */
+  createdAt: string | number
+  updatedAt: string | number
+  /** 软删除标记 */
   deleted: boolean
 }
