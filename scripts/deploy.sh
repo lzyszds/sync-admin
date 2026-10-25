@@ -107,9 +107,11 @@ echo "[deploy] 同步完成"
 # nginx worker 通常以 www 等非 root 用户运行，同步后把属主改回来
 if [ -n "${DEPLOY_CHOWN:-}" ] && [ "${DRY_RUN}" != "1" ]; then
   echo "[deploy] 设置属主为 ${DEPLOY_CHOWN} ..."
-  ssh "${SSH_OPTS[*]}" "${HOST}" "chown -R ${DEPLOY_CHOWN} '${TARGET}'" || {
+  # 注意：这里必须用数组展开 "${SSH_OPTS[@]}"，
+  # 若写成 "${SSH_OPTS[*]}" 会被拼成单个参数，ssh 会报 "Bad port"
+  if ! ssh "${SSH_OPTS[@]}" "${HOST}" "chown -R ${DEPLOY_CHOWN} '${TARGET}'"; then
     echo "[deploy] 设置属主失败（不影响文件内容，忽略）" >&2
-  }
+  fi
 fi
 
 # --- 健康检查 -------------------------------------------------------------
