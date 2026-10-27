@@ -2,7 +2,7 @@ import { toast } from "sonner"
 import { Send } from "lucide-react"
 import { ConsoleWorkspace } from "@/components/layout/console-workspace"
 import { CONSOLE_ENDPOINTS, SYNC_LOGS } from "@/lib/console-data"
-import { useConsole } from "@/lib/console-store"
+import { useConsole } from "@/lib/console-context"
 
 export default function Endpoints() {
   const { triggerSync, online, authFailed } = useConsole()

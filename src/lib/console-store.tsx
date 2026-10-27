@@ -1,31 +1,16 @@
-// 云控后台 · 平台级数据状态（真实后端优先，本地演示数据兜底）
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
+// 浜戞帶鍚庡彴 路 骞冲彴绾ф暟鎹姸鎬侊紙鐪熷疄鍚庣浼樺厛锛屾湰鍦版紨绀烘暟鎹厹搴曪級
+//
+// 娉ㄦ剰锛氭湰妯″潡鍙鍑虹粍浠?ConsoleProvider銆?
+// Context 涓?useConsole 鏀惧湪 console-context.ts锛?
+// 閬垮厤 Fast Refresh 鍥犮€岀粍浠朵笌 hook 娣峰悎瀵煎嚭銆嶈€屾暣鍧楀け鏁堬紝瀵艰嚧鐧藉睆銆?
+import { useCallback, useEffect, useMemo, useState } from "react"
 import type { ReactNode } from "react"
 import { api, isAuthError } from "@/lib/api"
 import { clearCache, dedupe } from "@/lib/data-cache"
+import { ConsoleContext } from "@/lib/console-context"
+import type { ConsoleContextValue } from "@/lib/console-context"
 import type { AppStat, Overview, Recipe, Snapshot } from "@/lib/types"
 import { DEMO_APPS, DEMO_OVERVIEW, DEMO_SNAPSHOTS, demoRecipes } from "@/lib/console-data"
-
-interface ConsoleContextValue {
-  overview: Overview
-  apps: AppStat[]
-  snapshots: Snapshot[]
-  /** 食谱业务表的记录（供跨表引用与统计） */
-  recipes: Recipe[]
-  /** 是否已连上真实后端 */
-  online: boolean
-  /** 已连上后端但令牌被拒（401/403）—— 与「后端不可达」区分 */
-  authFailed: boolean
-  loading: boolean
-  syncCount: number
-  lastSyncAt: string
-  refresh: () => Promise<void>
-  /** 全局刷新：清空所有页面缓存并重新拉取 */
-  refreshAll: () => Promise<void>
-  triggerSync: () => Promise<void>
-}
-
-const ConsoleContext = createContext<ConsoleContextValue | null>(null)
 
 export function ConsoleProvider({ children }: { children: ReactNode }) {
   const [overview, setOverview] = useState<Overview>(DEMO_OVERVIEW)
@@ -48,16 +33,16 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
       setOnline(true)
       setAuthFailed(false)
 
-      // 快照列表：分页拉取，每页到达即更新，界面边收边渲染
+      // 蹇収鍒楄〃锛氬垎椤垫媺鍙栵紝姣忛〉鍒拌揪鍗虫洿鏂帮紝鐣岄潰杈规敹杈规覆鏌?
       const sn = await api.allSnapshots({}, 100, (partial) => {
         setSnapshots(partial.snapshots)
       })
       setSnapshots(sn.snapshots)
 
-      // 食谱业务表记录（用于跨表引用）—— 拉取全量，保证关联食谱下拉完整
+      // 椋熻氨涓氬姟琛ㄨ褰曪紙鐢ㄤ簬璺ㄨ〃寮曠敤锛夆€斺€?鎷夊彇鍏ㄩ噺锛屼繚璇佸叧鑱旈璋变笅鎷夊畬鏁?
       const recipeSnapshot = sn.snapshots.find((s) => s.app === "recipe")
       if (recipeSnapshot) {
-        // 与食谱页面共享同一份请求，避免重复拉取
+        // 涓庨璋遍〉闈㈠叡浜悓涓€浠借姹傦紝閬垮厤閲嶅鎷夊彇
         const res = await dedupe(`recipes:recipe:${recipeSnapshot.tokenHash}:live`, () =>
           api.allRecipes("recipe", recipeSnapshot.tokenHash, {}, (partial) => {
             setRecipes(partial.recipes)
@@ -66,12 +51,12 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
         setRecipes(res.recipes)
       }
     } catch (err) {
-      // 令牌被拒（401/403）：后端可达，仅鉴权失败 —— 不算「服务不可达」
+      // 浠ょ墝琚嫆锛?01/403锛夛細鍚庣鍙揪锛屼粎閴存潈澶辫触 鈥斺€?涓嶇畻銆屾湇鍔′笉鍙揪銆?
       if (isAuthError(err)) {
         setOnline(false)
         setAuthFailed(true)
       } else {
-        // 后端确实不可达时保持本地演示数据，控制台依旧可用
+        // 鍚庣纭疄涓嶅彲杈炬椂淇濇寔鏈湴婕旂ず鏁版嵁锛屾帶鍒跺彴渚濇棫鍙敤
         setOnline(false)
         setAuthFailed(false)
       }
@@ -97,8 +82,8 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
   }, [])
 
   /**
-   * 全局刷新：清空所有页面缓存并重新拉取平台级数据。
-   * 各页面通过 useCachedData 的 refresh 单独刷新自己的数据。
+   * 鍏ㄥ眬鍒锋柊锛氭竻绌烘墍鏈夐〉闈㈢紦瀛樺苟閲嶆柊鎷夊彇骞冲彴绾ф暟鎹€?
+   * 鍚勯〉闈㈤€氳繃 useCachedData 鐨?refresh 鍗曠嫭鍒锋柊鑷繁鐨勬暟鎹€?
    */
   const refreshAll = useCallback(async () => {
     clearCache()
@@ -115,10 +100,4 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
   )
 
   return <ConsoleContext.Provider value={value}>{children}</ConsoleContext.Provider>
-}
-
-export function useConsole() {
-  const ctx = useContext(ConsoleContext)
-  if (!ctx) throw new Error("useConsole 必须在 ConsoleProvider 内部使用")
-  return ctx
 }

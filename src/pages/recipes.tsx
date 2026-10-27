@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { api } from "@/lib/api"
-import { useConsole } from "@/lib/console-store"
+import { useConsole } from "@/lib/console-context"
 import {
   CONSOLE_RULES,
   CONSOLE_SCHEMAS,

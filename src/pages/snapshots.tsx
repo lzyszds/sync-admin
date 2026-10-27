@@ -16,7 +16,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { api } from "@/lib/api"
-import { useConsole } from "@/lib/console-store"
+import { useConsole } from "@/lib/console-context"
 import { formatBytes, formatDate } from "@/lib/format"
 import type { Snapshot } from "@/lib/types"
 

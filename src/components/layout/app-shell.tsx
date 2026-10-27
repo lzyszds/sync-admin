@@ -21,7 +21,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { clearToken } from "@/lib/api"
 import { loadAiConfig, saveAiConfig } from "@/lib/ai-config"
-import { ConsoleProvider, useConsole } from "@/lib/console-store"
+import { ConsoleProvider } from "@/lib/console-store"
+import { useConsole } from "@/lib/console-context"
 
 /** 图标导航栏模块定义（平台级 + 业务应用级） */
 const RAIL_ITEMS = [

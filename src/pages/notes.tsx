@@ -6,7 +6,7 @@ import { ConsoleIconButton, ConsoleWorkspace } from "@/components/layout/console
 import { ConsoleList, ConsoleListCard, ConsoleNav, ConsoleNavItem } from "@/components/layout/console-columns"
 import { RefreshButton } from "@/components/layout/load-progress"
 import { api } from "@/lib/api"
-import { useConsole } from "@/lib/console-store"
+import { useConsole } from "@/lib/console-context"
 import { DEMO_NOTES, denormalizeNote, extractNotesPayload, normalizeFolder, normalizeNote, renderNoteMarkdown } from "@/lib/console-data"
 import { formatDate } from "@/lib/format"
 import { useCachedData } from "@/lib/use-cached-data"

@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom"
 import { Activity, Database, FileText, Flame, HardDrive, Layers3, Server, ShieldCheck } from "lucide-react"
 import { ConsoleWorkspace } from "@/components/layout/console-workspace"
-import { useConsole } from "@/lib/console-store"
+import { useConsole } from "@/lib/console-context"
 import { SYNC_LOGS } from "@/lib/console-data"
 import { formatBytes, formatDate, formatDateShort } from "@/lib/format"
 
