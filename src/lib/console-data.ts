@@ -597,10 +597,20 @@ export function extractNotesPayload(data: unknown): NotesPayload | null {
 }
 
 /**
+ * 软删除判定：deleted 布尔标记，或存在 deletedAt 时间戳。
+ * 注意用「是否存在」而非真值判断，避免 deletedAt 为 0 时被误判为未删除。
+ */
+function isSoftDeleted(obj: Record<string, unknown>): boolean {
+  if (obj.deleted === true || obj.已删除 === true) return true
+  const at = obj.deletedAt ?? obj.删除时间
+  return at !== undefined && at !== null && at !== ""
+}
+
+/**
  * 将快照中的原始笔记归一化为控制台结构。
  *
  * 随手备忘应用上报的字段：
- *   { id, title, content, createdAt, updatedAt, sourceMtime?, sourcePath?, folderId? }
+ *   { id, title, content, createdAt, updatedAt, sourceMtime?, sourcePath?, folderId?, deletedAt? }
  * 时间戳是 epoch 毫秒数字，保留原值交给 formatDate 解析。
  */
 export function normalizeNote(item: unknown, index = 0): ConsoleNote {
@@ -631,7 +641,7 @@ export function normalizeNote(item: unknown, index = 0): ConsoleNote {
     sourcePath: String(obj.sourcePath || obj.来源路径 || ""),
     createdAt: (obj.createdAt ?? obj.创建时间 ?? obj.updatedAt ?? obj.更新时间 ?? "") as string | number,
     updatedAt: (obj.updatedAt ?? obj.更新时间 ?? "") as string | number,
-    deleted: Boolean(obj.deleted || obj.deletedAt),
+    deleted: isSoftDeleted(obj),
   }
 }
 
@@ -643,7 +653,7 @@ export function normalizeFolder(item: unknown, index = 0): ConsoleFolder {
     name: String(obj.name || obj.名称 || "未命名文件夹"),
     createdAt: (obj.createdAt ?? obj.创建时间 ?? "") as string | number,
     updatedAt: (obj.updatedAt ?? obj.更新时间 ?? "") as string | number,
-    deleted: Boolean(obj.deleted || obj.deletedAt),
+    deleted: isSoftDeleted(obj),
   }
 }
 
